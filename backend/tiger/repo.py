@@ -10,10 +10,11 @@ need to know which one is active.
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from .sample_data import LOCATIONS, METRICS, floor_to_step, generate
-from .sql_guard import check_readonly
+from shared.series import DataUnavailable, json_safe, make_point, make_result, parse_time
+from shared.sql_guard import check_readonly
 
 Granularity = Literal["auto", "raw", "hourly", "daily"]
 
@@ -47,7 +48,7 @@ class TigerRepo(Protocol):
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict: ...
 
 
-class TigerUnavailable(RuntimeError):
+class TigerUnavailable(DataUnavailable):
     pass
 
 
@@ -56,12 +57,8 @@ MAX_HOURS = 24 * 90  # "recent" data; older questions route to Snowflake
 
 def resolve_window(hours: float = 24, start: str | None = None, end: str | None = None) -> tuple[datetime, datetime]:
     """Turn either `hours` back from now, or explicit ISO start/end, into a UTC window."""
-    def parse(s: str) -> datetime:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-    end_dt = parse(end) if end else datetime.now(timezone.utc)
-    start_dt = parse(start) if start else end_dt - timedelta(hours=min(hours, MAX_HOURS))
+    end_dt = parse_time(end) if end else datetime.now(timezone.utc)
+    start_dt = parse_time(start) if start else end_dt - timedelta(hours=min(hours, MAX_HOURS))
     if start_dt >= end_dt:
         raise ValueError("start must be before end")
     return start_dt, end_dt
@@ -74,43 +71,6 @@ def pick_granularity(start: datetime, end: datetime, granularity: Granularity) -
     if span <= timedelta(days=2):
         return "raw"
     return "hourly" if span <= timedelta(days=31) else "daily"
-
-
-def _result(metric, location, unit, granularity, start, end, points: list[dict]) -> dict:
-    values = [p["avg"] for p in points]
-    summary = None
-    if points:
-        summary = {
-            "avg": round(sum(values) / len(values), 2),
-            "min": round(min(p["min"] for p in points), 2),
-            "max": round(max(p["max"] for p in points), 2),
-            "latest": points[-1]["avg"],
-            "latest_time": points[-1]["time"],
-        }
-    return {
-        "metric": metric,
-        "location": location,
-        "unit": unit,
-        "granularity": granularity,
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "count": len(points),
-        "summary": summary,
-        "points": points,
-    }
-
-
-def _point(time: datetime, avg: float, lo: float, hi: float, samples: int) -> dict:
-    return {"time": time.isoformat(), "avg": round(avg, 2), "min": round(lo, 2),
-            "max": round(hi, 2), "samples": samples}
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, (int, float, str, bool)) or value is None:
-        return value
-    return str(value)
 
 
 class PostgresTigerRepo:
@@ -155,9 +115,9 @@ class PostgresTigerRepo:
                       ORDER BY bucket"""
         with self._connect() as conn:
             rows = conn.execute(sql, (metric, location, start, end)).fetchall()
-        points = [_point(r["time"], r["avg_value"], r["min_value"], r["max_value"], r["samples"]) for r in rows]
+        points = [make_point(r["time"], r["avg_value"], r["min_value"], r["max_value"], r["samples"]) for r in rows]
         unit = rows[0]["unit"] if rows else METRICS.get(metric, ("",))[0]
-        return _result(metric, location, unit, g, start, end, points)
+        return make_result(metric, location, unit, g, start, end, points)
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         statement = check_readonly(sql)
@@ -171,7 +131,7 @@ class PostgresTigerRepo:
             conn.rollback()
         return {
             "columns": columns,
-            "rows": [{k: _json_safe(v) for k, v in r.items()} for r in rows[:limit]],
+            "rows": [{k: json_safe(v) for k, v in r.items()} for r in rows[:limit]],
             "truncated": len(rows) > limit,
         }
 
@@ -195,14 +155,14 @@ class MockTigerRepo:
         g = pick_granularity(start, end, granularity)
         rows = [(t, v) for t, v in self._series.get((location, metric), []) if start <= t < end]
         if g == "raw":
-            points = [_point(t, v, v, v, 1) for t, v in rows]
+            points = [make_point(t, v, v, v, 1) for t, v in rows]
         else:
             buckets: dict[datetime, list[float]] = defaultdict(list)
             for t, v in rows:
                 key = t.replace(minute=0) if g == "hourly" else t.replace(hour=0, minute=0)
                 buckets[key].append(v)
-            points = [_point(k, sum(vs) / len(vs), min(vs), max(vs), len(vs)) for k, vs in sorted(buckets.items())]
-        return _result(metric, location, METRICS.get(metric, ("",))[0], g, start, end, points)
+            points = [make_point(k, sum(vs) / len(vs), min(vs), max(vs), len(vs)) for k, vs in sorted(buckets.items())]
+        return make_result(metric, location, METRICS.get(metric, ("",))[0], g, start, end, points)
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         check_readonly(sql)  # still validate, so the guard can be demoed without a DB

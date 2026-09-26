@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .repo import MAX_HOURS, SCHEMA_DESCRIPTION, TigerUnavailable, TigerRepo, get_repo, resolve_window
-from .sql_guard import UnsafeSQL
+from shared.sql_guard import UnsafeSQL
 
 router = APIRouter(prefix="/tiger", tags=["tiger"])
 

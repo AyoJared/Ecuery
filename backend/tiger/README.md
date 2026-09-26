@@ -57,20 +57,23 @@ It includes tools like `service_create` and `service_delete`, so it's a dev tool
 
 ## 3. Ecuery MCP: the app's Gemini
 
-`tiger/mcp_server.py` exposes read-only tools for answering user questions:
+`backend/mcp_server.py` (server name `ecuery-data`) exposes read-only tools over **both** Tiger and Snowflake:
 
 | Tool | Purpose |
 | --- | --- |
 | `list_metrics` / `list_locations` | Valid names to use in queries |
-| `get_recent_readings(metric, location, hours, granularity)` | Summary + chart points (main tool) |
-| `describe_schema` | Tables/columns, for writing SQL |
-| `run_readonly_sql(sql, limit)` | Gemini-generated SELECT, checked by `sql_guard.py`, then run in a READ ONLY transaction with a 5s timeout |
+| `data_coverage` | Where the recent/historical split is, date ranges |
+| `get_readings(metric, location, start, end, days)` | Any time range, routed to Tiger and/or Snowflake and merged (main tool) |
+| `get_recent_readings(metric, location, hours, granularity)` | Detailed recent data from Tiger |
+| `compare_recent_to_history(metric, location, days, years)` | Is this week normal? |
+| `describe_schema(database)` | Tables/columns for `tiger` or `snowflake` |
+| `run_readonly_sql(sql, database, limit)` | Gemini-generated SELECT, checked by `shared/sql_guard.py`, then run read-only (READ ONLY transaction on Tiger, `ECUERY_READER` role on Snowflake) |
 
 Run it from `backend/`:
 
 ```powershell
-python -m tiger.mcp_server              # stdio
-python -m tiger.mcp_server --http 8001  # http://127.0.0.1:8001/mcp
+python mcp_server.py              # stdio
+python mcp_server.py --http 8001  # http://127.0.0.1:8001/mcp
 ```
 
 Gemini CLI (`~/.gemini/settings.json`):
@@ -78,9 +81,9 @@ Gemini CLI (`~/.gemini/settings.json`):
 ```json
 {
   "mcpServers": {
-    "ecuery-tiger": {
+    "ecuery-data": {
       "command": "python",
-      "args": ["-m", "tiger.mcp_server"],
+      "args": ["mcp_server.py"],
       "cwd": "C:/Users/Jared/Dev/Owlhacks/Fall2026/Ecuery/backend"
     }
   }
@@ -95,12 +98,12 @@ from google.genai import types
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-params = StdioServerParameters(command="python", args=["-m", "tiger.mcp_server"])
+params = StdioServerParameters(command="python", args=["mcp_server.py"])
 async with stdio_client(params) as (r, w), ClientSession(r, w) as session:
     await session.initialize()
     response = await genai.Client().aio.models.generate_content(
         model="gemini-2.5-flash",
-        contents="How was PM2.5 in Philadelphia over the last 3 days?",
+        contents="Was PM2.5 in Philadelphia this week higher than usual?",
         config=types.GenerateContentConfig(tools=[session]),
     )
 ```

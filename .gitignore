@@ -11,3 +11,7 @@ venv/
 # Node
 node_modules/
 .next/
+
+# Snowflake key-pair auth
+*.p8
+*.pem
