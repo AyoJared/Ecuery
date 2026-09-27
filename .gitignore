@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+.next/
+
+# Snowflake key-pair auth
+*.p8
+*.pem
+
+# Solana wallet (backend signer)
+solana_keypair.json
+*-keypair.json

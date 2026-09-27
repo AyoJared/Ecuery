@@ -1,0 +1,10 @@
+fastapi>=0.141  # older FastAPI pins starlette<0.47, which conflicts with mcp
+uvicorn
+python-dotenv
+httpx
+psycopg[binary]>=3.2
+mcp>=2.2
+snowflake-connector-python>=4.7
+google-genai>=2.25
+solders>=0.29
+redis>=5

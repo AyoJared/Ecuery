@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ecuery demo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root { --bg:#f6f7f5; --card:#fff; --ink:#1d2320; --muted:#66706b; --line:#e2e6e3; --accent:#1f7a5a; --warn:#b4531b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  form { display:flex; gap:8px; }
+  input { flex:1; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font:inherit; background:#fff; }
+  button { padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  #mic { background:#fff; color:var(--ink); border:1px solid var(--line); min-width:52px; }
+  #mic.rec { background:#c0392b; color:#fff; border-color:#c0392b; }
+  .heard { color: var(--muted); font-style: italic; margin: 0 0 8px; }
+  .examples { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 24px; }
+  .examples button { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:400; padding:6px 10px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  .answer { font-size:17px; margin:0 0 12px; }
+  .clarify { color: var(--warn); }
+  audio { width:100%; margin:8px 0 4px; }
+  ul { margin:8px 0; padding-left:20px; color:var(--muted); }
+  .meta { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:13px; color:var(--muted); margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  .badge { color: var(--accent); font-weight:600; }
+  .badge a { color: inherit; }
+  svg { width:100%; height:auto; display:block; margin-top:12px; }
+  .status { color: var(--muted); margin: 8px 0; min-height: 1.5em; }
+  details { margin-top: 12px; font-size: 13px; }
+  pre { overflow-x:auto; background:#f1f3f2; padding:10px; border-radius:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ecuery</h1>
+  <p class="sub">Ask about air quality, weather, rivers, CO2 or natural disasters anywhere in the world.</p>
+  <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="mic" type="button" title="Ask out loud">🎤</button><button id="go">Ask</button></form>
+  <div class="examples" id="ex"></div>
+  <div class="status" id="status"></div>
+  <div class="status" id="conv"></div>
+  <div id="out"></div>
+</main>
+<script>
+const EXAMPLES = [
+  "How many tornadoes were there in 2025 in Philly?",
+  "What were the biggest earthquakes in 2025?",
+  "How bad was air pollution in Delhi in November 2023?",
+  "Is Paris hotter than usual this week?",
+  "EF3 or stronger tornadoes in Oklahoma since 2024",
+  "Were there any wildfires near Los Angeles this year?",
+];
+const $ = (id) => document.getElementById(id);
+let conversationId = null;  // sent back with each question so follow-ups keep context
+function showConversation(d) {
+  if (d.conversation_id) conversationId = d.conversation_id;
+  $("conv").innerHTML = conversationId
+    ? `Conversation turn ${d.turn ?? "?"} · follow-ups like “what about Pittsburgh?” work · <a href="#" id="reset">New conversation</a>`
+    : "";
+  const r = $("reset");
+  if (r) r.onclick = async (e) => { e.preventDefault(); await fetch(`/ask/conversation/${conversationId}`, {method: "DELETE"});
+                                    conversationId = null; $("conv").textContent = ""; $("out").innerHTML = ""; };
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+EXAMPLES.forEach(q => { const b = document.createElement("button"); b.type = "button"; b.textContent = q;
+  b.onclick = () => { $("q").value = q; ask(q); }; $("ex").appendChild(b); });
+$("f").onsubmit = (e) => { e.preventDefault(); const q = $("q").value.trim() || $("q").placeholder; ask(q); };
+
+function ask(question) {
+  return send(fetch("/ask", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({question, conversation_id: conversationId}) }));
+}
+
+async function send(request) {
+  $("go").disabled = true; $("mic").disabled = true; $("out").innerHTML = ""; $("status").textContent = "Thinking…";
+  try {
+    const res = await request;
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+    render(d);
+    showConversation(d);
+    $("status").textContent = d.timings ? `Answered in ${Object.values(d.timings).reduce((a, b) => a + b, 0).toFixed(1)}s` : "";
+  } catch (err) { $("status").textContent = "Error: " + err.message; }
+  finally { $("go").disabled = false; $("mic").disabled = false; }
+}
+
+// Step 1 of the flow: tap mic, speak, and it stops on ~1.5s of silence (or tap again).
+let recorder = null;
+$("mic").onclick = async () => {
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (err) { $("status").textContent = "Microphone blocked: " + err.message; return; }
+  const type = ["audio/webm", "audio/ogg", "audio/mp4"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+  recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const chunks = [];
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+
+  const ctx = new AudioContext(), analyser = ctx.createAnalyser(), buf = new Float32Array(analyser.fftSize);
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  let heardSpeech = false, quietSince = performance.now();
+  const started = performance.now();
+  const watch = setInterval(() => {
+    analyser.getFloatTimeDomainData(buf);
+    const level = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length);
+    const now = performance.now();
+    if (level > 0.02) { heardSpeech = true; quietSince = now; }
+    $("status").textContent = `Listening… ${((now - started) / 1000).toFixed(0)}s (tap 🎤 to stop)`;
+    if ((heardSpeech && now - quietSince > 1500) || now - started > 30000) recorder.stop();
+  }, 100);
+
+  recorder.onstop = () => {
+    clearInterval(watch); ctx.close(); stream.getTracks().forEach(t => t.stop());
+    $("mic").classList.remove("rec"); recorder = null;
+    const blob = new Blob(chunks, { type: chunks[0]?.type || type || "audio/webm" });
+    if (!blob.size) { $("status").textContent = "Nothing recorded."; return; }
+    const form = new FormData();
+    if (conversationId) form.append("conversation_id", conversationId);
+    form.append("audio", blob, "question." + (blob.type.split("/")[1] || "webm").split(";")[0]);
+    send(fetch("/ask/voice", { method: "POST", body: form }));
+  };
+  recorder.start(250);
+  $("mic").classList.add("rec");
+};
+
+function render(d) {
+  const heard = d.transcript !== undefined ? `<p class="heard">You asked: “${esc(d.transcript || "…")}”</p>` : "";
+  if (d.status === "needs_clarification") {
+    $("out").innerHTML = `<div class="card">${heard}<p class="answer clarify">${esc(d.clarification)}</p></div>`; return;
+  }
+  const v = d.verification;
+  $("out").innerHTML = `<div class="card">
+    ${heard}
+    <p class="answer">${esc(d.answer_text)}</p>
+    <audio id="player" controls src="${esc(d.audio_url)}"></audio>
+    ${d.comparison ? `<p>${esc(d.comparison)}</p>` : ""}
+    ${d.trends?.length ? `<ul>${d.trends.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+    ${chart(d.chart)}
+    ${d.kind === "events" ? eventsBlock(d) : ""}
+    <div class="meta">
+      ${v.badge.verified
+        ? `<span class="badge">✓ ${esc(v.badge.label)} · <a href="${esc(v.explorer_url)}" target="_blank" rel="noopener">${esc(v.signature.slice(0, 10))}…</a></span>`
+        : `<span class="clarify" title="${esc(v.error)}">✗ ${esc(v.badge.label)}</span>`}
+      <span>Data: ${(d.provenance || []).length
+        ? d.provenance.map(p => `<a href="/verify/batch/${esc(p.batch_id)}" target="_blank" title="${esc(p.dataset)}">${esc(p.source.toUpperCase())}</a> (${esc(p.quality)})`).join(", ")
+        : "no source batches"}</span>
+      ${d.data ? `<span>Route: ${d.data.map(s => s.route).join(", ")}</span>` : ""}
+    </div>
+    <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>
+  </div>`;
+  if (d.kind === "events") drawMap(d.map);
+  // Browsers may block autoplay after a slow request; the controls are there as a fallback.
+  $("player").play().catch(() => {});
+}
+
+function eventsBlock(d) {
+  const e = d.events;
+  const row = (x, near) => `<tr><td>${esc(x.date)}</td><td>${esc(x.strength || x.type)}</td>
+    <td>${esc(x.region || x.name || "")}</td><td>${x.distance_km != null ? esc(x.distance_km) + " km" : ""}${near ? " (outside area)" : ""}</td></tr>`;
+  const rows = e.biggest.slice(0, 10).map(x => row(x, false)).join("") + e.nearest.map(x => row(x, true)).join("");
+  return `<p><strong>${e.count.toLocaleString()}</strong> event${e.count === 1 ? "" : "s"} found
+      ${e.deaths ? ` · ${e.deaths} deaths` : ""}${e.injuries ? ` · ${e.injuries} injuries` : ""}</p>
+    ${rows ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="text-align:left;color:#66706b"><th>Date</th><th>Strength</th><th>Where</th><th>Distance</th></tr>${rows}</table></div>` : ""}
+    <div id="map" style="height:280px;border-radius:10px;margin-top:12px"></div>`;
+}
+
+function drawMap(m) {
+  if (!window.L || !m || !m.points.length && !m.center) return;
+  const center = m.center ? [m.center.lat, m.center.lon] : [m.points[0].lat, m.points[0].lon];
+  const map = L.map("map").setView(center, m.center ? 8 : 2);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {attribution: "© OpenStreetMap"}).addTo(map);
+  if (m.center && m.radius_km) L.circle(center, {radius: m.radius_km * 1000, color: "#1f7a5a", fillOpacity: 0.05}).addTo(map);
+  const bounds = [];
+  m.points.slice(0, 300).forEach(p => {
+    L.circleMarker([p.lat, p.lon], {radius: 5, color: "#b4531b", fillOpacity: 0.7})
+      .bindPopup(`${esc(p.date)} · ${esc(p.strength || p.type)}<br>${esc(p.region || p.name || "")}`).addTo(map);
+    bounds.push([p.lat, p.lon]);
+  });
+  if (m.center) bounds.push(center);
+  if (bounds.length > 1) map.fitBounds(bounds, {padding: [20, 20], maxZoom: 9});
+}
+
+function chart(c) {
+  const W = 700, H = 240, P = {l: 48, r: 12, t: 28, b: 28};
+  const colors = ["#1f7a5a", "#2f5fb3", "#b4531b", "#7a3fa0"];
+  const title = `<text x="${P.l}" y="16" font-size="13" font-weight="600" fill="#1d2320">${esc(c.title)}</text>`;
+  if (c.bars) {
+    const max = Math.max(...c.bars.map(b => b.value)) * 1.1 || 1, bw = (W - P.l - P.r) / c.bars.length;
+    const bars = c.bars.map((b, i) => { const h = (H - P.t - P.b) * b.value / max, x = P.l + i * bw + 6, y = H - P.b - h;
+      return `<rect x="${x}" y="${y}" width="${bw - 12}" height="${h}" rx="4" fill="${b.highlight ? colors[2] : colors[0]}"/>
+        <text x="${x + (bw - 12) / 2}" y="${y - 4}" font-size="11" text-anchor="middle" fill="#1d2320">${b.value}</text>
+        <text x="${x + (bw - 12) / 2}" y="${H - 10}" font-size="11" text-anchor="middle" fill="#66706b">${esc(b.label)}</text>`; }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}">${title}${bars}</svg>`;
+  }
+  const pts = c.series.flatMap(s => s.points);
+  if (!pts.length) return "";
+  const ts = pts.map(p => Date.parse(p.time)), vs = pts.map(p => p.value);
+  const t0 = Math.min(...ts), t1 = Math.max(...ts) || t0 + 1, v0 = Math.min(0, ...vs), v1 = Math.max(...vs) * 1.08;
+  const x = t => P.l + (W - P.l - P.r) * (t - t0) / ((t1 - t0) || 1), y = v => H - P.b - (H - P.t - P.b) * (v - v0) / ((v1 - v0) || 1);
+  const lines = c.series.map((s, i) => `<polyline fill="none" stroke="${colors[i % 4]}" stroke-width="2" points="${
+    s.points.map(p => `${x(Date.parse(p.time)).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ")}"/>`).join("");
+  const legend = c.series.map((s, i) => `<text x="${W - P.r}" y="${16 + i * 14}" font-size="11" text-anchor="end" fill="${colors[i % 4]}">${esc(s.name)}</text>`).join("");
+  const fmt = t => new Date(t).toLocaleDateString(undefined, {month: "short", day: "numeric", year: (t1 - t0) > 2e10 ? "numeric" : undefined});
+  const axis = `<line x1="${P.l}" y1="${H - P.b}" x2="${W - P.r}" y2="${H - P.b}" stroke="#e2e6e3"/>
+    <text x="${P.l - 6}" y="${y(v1) + 4}" font-size="11" text-anchor="end" fill="#66706b">${v1.toFixed(0)}</text>
+    <text x="${P.l - 6}" y="${y(v0) + 4}" font-size="11" text-anchor="end" fill="#66706b">${v0.toFixed(0)}</text>
+    <text x="${P.l}" y="${H - 8}" font-size="11" fill="#66706b">${fmt(t0)}</text>
+    <text x="${W - P.r}" y="${H - 8}" font-size="11" text-anchor="end" fill="#66706b">${fmt(t1)}</text>
+    <text x="12" y="${(H) / 2}" font-size="11" fill="#66706b" transform="rotate(-90 12 ${H / 2})" text-anchor="middle">${esc(c.y_label)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}">${title}${legend}${axis}${lines}</svg>`;
+}
+</script>
+</body>
+</html>
