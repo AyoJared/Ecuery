@@ -37,7 +37,7 @@
 <body>
 <main>
   <h1>Ecuery</h1>
-  <p class="sub">Ask about air quality, CO2 or weather in Baltimore, New York, Philadelphia or Pittsburgh.</p>
+  <p class="sub">Ask about air quality, weather, rivers or CO2 anywhere in the world.</p>
   <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="mic" type="button" title="Ask out loud">🎤</button><button id="go">Ask</button></form>
   <div class="examples" id="ex"></div>
   <div class="status" id="status"></div>
@@ -46,11 +46,12 @@
 </main>
 <script>
 const EXAMPLES = [
-  "How was PM2.5 in Philadelphia over the last 3 days?",
+  "How bad was air pollution in Delhi in November 2023?",
   "Was air quality in New York worse during the June 2023 wildfire smoke?",
-  "Is ozone in Baltimore higher than usual this week?",
-  "How has CO2 changed in Pittsburgh since 2019?",
-  "Compare smog in Philly and NYC this week",
+  "Is Paris hotter than usual this week?",
+  "Compare air quality in Lagos and Cairo this month",
+  "How has the Schuylkill River flow in Philadelphia changed this week?",
+  "What is the global CO2 level right now?",
 ];
 const $ = (id) => document.getElementById(id);
 let conversationId = null;  // sent back with each question so follow-ups keep context

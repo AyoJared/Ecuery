@@ -8,6 +8,9 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 
+ABSOLUTE_METRICS = {"temperature", "water_temperature", "humidity"}
+
+
 class ChartChoice(BaseModel):
     type: Literal["line", "bar"] = Field(description="line for values over time, bar for comparing averages")
     title: str
@@ -29,7 +32,8 @@ empty or doesn't cover the question, say so plainly. Round to one decimal place.
 ("June 7, 2023", "over the last three days"). For PM2.5, values above 35 µg/m³ are unhealthy for sensitive groups
 and above 55 are unhealthy for everyone; say so when relevant.
 When "comparisons_to_history" is present, the question is about what is normal: always state the recent
-average, the historical baseline and the percent difference from it.
+average, the historical baseline and the change: a percent for pollutants and river flow, but for
+temperature and humidity the absolute difference (e.g. "2.1 °C warmer than usual"), never a percent.
 plan.data_notes says where the data comes from. Mention it in a short clause when it changes the meaning
 (for example that CO2 is a global Mauna Loa measurement, not the city's). If a series has no points, say that
 data isn't available for that period rather than guessing."""
@@ -60,9 +64,11 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
         current = next((s for s in series if s["metric"] == b["metric"] and s["location"] == b["location"]), None)
         if current and current["summary"] and b["baseline_avg"]:
             recent = current["summary"]["avg"]
+            absolute = b["metric"] in ABSOLUTE_METRICS  # a percent of °C or of %RH means nothing
             comparisons.append({"metric": b["metric"], "location": b["location"], "unit": b["unit"],
                                 "recent_avg": recent, "baseline_avg": b["baseline_avg"],
-                                "change_pct": round((recent - b["baseline_avg"]) / b["baseline_avg"] * 100, 1),
+                                "difference": round(recent - b["baseline_avg"], 1),
+                                "change_pct": None if absolute else round((recent - b["baseline_avg"]) / b["baseline_avg"] * 100, 1),
                                 "baseline_years": [y["year"] for y in b["by_year"]]})
     if comparisons:
         payload["comparisons_to_history"] = comparisons
@@ -83,11 +89,18 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
     # so add the sentence from the real numbers rather than show an answer that dodges the question.
     for c in comparisons:
         b, text = c["baseline_avg"], result.answer_text
-        # Count it as stated if the baseline (allowing either rounding) or the percent change appears.
-        mentioned = {f"{b:.1f}", f"{b + 0.05:.1f}", f"{b - 0.05:.1f}", f"{abs(c['change_pct']):.1f}"}
+        # Count it as stated if the baseline (allowing either rounding) or the change appears.
+        change = abs(c["change_pct"]) if c["change_pct"] is not None else abs(c["difference"])
+        mentioned = {f"{b:.1f}", f"{b + 0.05:.1f}", f"{b - 0.05:.1f}", f"{change:.1f}"}
         if not any(m in text for m in mentioned):
-            direction = "higher" if c["change_pct"] > 0 else "lower"
-            years = c["baseline_years"]
-            result.answer_text += (f" That is {abs(c['change_pct'])}% {direction} than the {min(years)}–{max(years)} average "
-                                   f"of {c['baseline_avg']:.1f} {c['unit']} for the same dates.")
+            years = f"{min(c['baseline_years'])}–{max(c['baseline_years'])}"
+            if c["change_pct"] is None:
+                word = ("warmer" if c["difference"] > 0 else "cooler") if "temperature" in c["metric"] else \
+                       ("higher" if c["difference"] > 0 else "lower")
+                result.answer_text += (f" That is {abs(c['difference']):.1f} {c['unit']} {word} than the {years} average "
+                                       f"of {b:.1f} {c['unit']} for the same dates.")
+            else:
+                word = "higher" if c["change_pct"] > 0 else "lower"
+                result.answer_text += (f" That is {change}% {word} than the {years} average "
+                                       f"of {b:.1f} {c['unit']} for the same dates.")
     return result

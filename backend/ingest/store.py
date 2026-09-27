@@ -139,3 +139,16 @@ def refresh_aggregates() -> None:
 def rows_hash_now(batch_id: str, store: str) -> tuple[int, str]:
     rows = stored_rows(batch_id, store)
     return len(rows), rows_sha256(rows)
+
+
+def unanchored() -> list[dict]:
+    with tiger_conn(row_factory=dict_row) as conn:
+        return conn.execute("SELECT batch_id, manifest FROM ingest_batches WHERE solana_signature IS NULL").fetchall()
+
+
+def set_anchor(batch_id: str, anchored: dict) -> None:
+    with tiger_conn() as conn:
+        conn.execute("""UPDATE ingest_batches SET solana_signature = %s, solana_cluster = %s, chain_mode = %s,
+                        anchor_error = %s WHERE batch_id = %s""",
+                     (anchored.get("signature"), anchored.get("cluster"), anchored.get("chain_mode"),
+                      anchored.get("error"), batch_id))

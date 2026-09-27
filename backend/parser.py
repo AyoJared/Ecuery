@@ -13,7 +13,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from shared.catalog import CITIES, METRICS
+from shared.catalog import METRICS
 
 Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity", "streamflow", "water_temperature"]
 assert set(Metric.__args__) == set(METRICS), "keep Metric in sync with shared/catalog.py"
@@ -26,7 +26,7 @@ class EnvironmentalQuery(BaseModel):
     topics: list[str] = []
     locations: list[str] = Field(
         default_factory=list,
-        description="Cities as lowercase snake_case, e.g. philadelphia, new_york. Empty if none mentioned.")
+        description="Places as proper names with country/state when known, e.g. 'Delhi, India'. Empty if none mentioned.")
     geographic_level: str | None = None
 
     # Measurements
@@ -71,9 +71,11 @@ If no time is mentioned, leave both dates empty.
 Allowed metric codes:
 {metrics}
 
-Locations with data: {', '.join(sorted(CITIES))}. Write any location in lowercase snake_case even if it is
-not in that list. Map "NYC"/"New York City" to new_york and "Philly" to philadelphia.
-CO2 concentration is only measured globally (NOAA Mauna Loa): for CO2-only questions no city is needed.
+Locations: any place on Earth. Write each as its proper name, adding the country (or US state) when the user
+gives it or it's needed to disambiguate, e.g. "Delhi, India", "Paris, France", "Paris, Texas", "Lagos, Nigeria".
+Expand nicknames ("NYC" -> "New York City", "Philly" -> "Philadelphia", "LA" -> "Los Angeles").
+Keep a location key from an earlier turn (like delhi_in or new_york) exactly as given.
+CO2 concentration is only measured globally (NOAA Mauna Loa): for CO2-only questions no place is needed.
 Only set clarification_question when the metric or location truly can't be inferred.
 
 Follow-ups: if earlier turns of the conversation are given, the new question may depend on them

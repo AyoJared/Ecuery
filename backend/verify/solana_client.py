@@ -11,6 +11,7 @@ Wallet status / funding: `python -m verify.wallet`
 import hashlib
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -107,8 +108,9 @@ class RpcSolanaClient:
         self.rpc_url = rpc_url or f"https://api.{cluster}.solana.com"
         self.fee_payer = str(self.keypair.pubkey())
         self._http = httpx.Client(timeout=30)
+        self._send_lock = threading.Lock()
 
-    def _rpc(self, method: str, params: list, attempts: int = 3):
+    def _rpc(self, method: str, params: list, attempts: int = 5):
         # The public devnet endpoint rate-limits bursts (HTTP 429) and hiccups; retry those briefly.
         for attempt in range(attempts):
             try:
@@ -137,6 +139,11 @@ class RpcSolanaClient:
         return self._rpc("getBalance", [self.fee_payer, {"commitment": "confirmed"}])["value"] / 1e9
 
     def send_memo(self, memo: str) -> MemoTransaction:
+        # One transaction at a time: parallel sends + confirmation polling trip devnet's rate limit.
+        with self._send_lock:
+            return self._send_memo(memo)
+
+    def _send_memo(self, memo: str) -> MemoTransaction:
         import base64
 
         from solders.hash import Hash
@@ -163,7 +170,7 @@ class RpcSolanaClient:
                 raise SolanaUnavailable(f"Transaction {signature} failed: {status['err']}")
             if status and status.get("confirmationStatus") in ("confirmed", "finalized"):
                 return
-            time.sleep(0.4)
+            time.sleep(0.8)
         raise SolanaUnavailable(f"Transaction {signature} not confirmed after {timeout:.0f}s")
 
     def get_transaction(self, signature: str) -> MemoTransaction | None:

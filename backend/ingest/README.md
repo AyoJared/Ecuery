@@ -13,6 +13,24 @@ and Snowflake (2019 onward), and anchor every batch on Solana.
 
 City → monitors/stations are defined in `shared/catalog.py`. No API keys are needed for any of these.
 
+## Anywhere else in the world (on demand)
+
+Places without local monitors are resolved by `shared/places.py` (Open-Meteo geocoding) and loaded the
+first time someone asks (`ingest/on_demand.py`), from global **modeled** data:
+
+| Metric | Source | Coverage |
+| --- | --- | --- |
+| PM2.5, ozone, NO2 | Copernicus CAMS | hourly; Europe from 2019, worldwide from Aug 2022 |
+| Temperature, humidity | ECMWF ERA5 (history) + weather-model analysis (recent) | global |
+| Streamflow | GloFAS (nearest modeled river) | global |
+
+These are batches like any other: fingerprinted, anchored on Solana and labeled `quality = modeled`.
+Coverage is tracked in the Tiger table `place_coverage`. After the first question, a place's history
+tops up daily and its recent data hourly. A first question about a new place takes about 10–20 s.
+
+If a Solana write fails (for example because of devnet rate limits), `python -m ingest.run --reanchor`
+anchors those batches later.
+
 ## Run (from `backend/`)
 
 ```powershell

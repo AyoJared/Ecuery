@@ -22,6 +22,9 @@ load_dotenv(Path(__file__).resolve().parent / ".env.local")
 
 from readings import service as merged  # noqa: E402
 from readings.service import RECENT_DAYS, recent_cutoff  # noqa: E402
+from ingest.on_demand import ensure  # noqa: E402
+from shared import places  # noqa: E402
+from shared.catalog import GLOBAL, METRICS  # noqa: E402
 from shared.series import DataUnavailable, error_text, parse_time  # noqa: E402
 from shared.sql_guard import UnsafeSQL  # noqa: E402
 from tiger.repo import SCHEMA_DESCRIPTION as TIGER_SCHEMA, get_repo as get_tiger, resolve_window  # noqa: E402
@@ -32,13 +35,28 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 mcp = MCPServer(
     name="ecuery-data",
     instructions=(
-        "Environmental readings (air quality, CO2, weather) for US cities. "
-        f"The last {RECENT_DAYS} days live in Tiger Data; older history (daily, back to 2019) lives in Snowflake. "
-        "Start with list_metrics / list_locations for valid names. get_readings handles any time range "
-        "and merges both stores. Use compare_recent_to_history for 'is this normal / higher than usual' "
+        "Environmental data (air quality, weather, river flow, global CO2) for any place on Earth. "
+        "Pass locations as place names ('Delhi', 'Paris, France', 'Philadelphia'); a new place is fetched on first use "
+        "(a few seconds). A few US cities use measured EPA/NOAA/USGS data; elsewhere values are modeled "
+        "(Copernicus CAMS, ECMWF ERA5, GloFAS). "
+        f"The last {RECENT_DAYS} days live in Tiger Data; older daily history lives in Snowflake. "
+        "get_readings handles any time range and merges both stores. Use compare_recent_to_history for 'is this "
+        "normal / higher than usual' "
         "questions. Only write SQL (run_readonly_sql) when the other tools can't answer, after describe_schema."
     ),
 )
+
+
+def _place(location: str, metric: str) -> str:
+    """Any place name ("Delhi", "Paris, France", "new_york") -> location key, loading its data if it's new."""
+    if METRICS.get(metric.lower()) and METRICS[metric.lower()].global_only:
+        return GLOBAL
+    try:
+        place = places.resolve(location)
+    except places.PlaceNotFound as e:
+        raise ToolError(f"{e}. Try adding the country, e.g. 'Paris, France'.") from None
+    ensure(place, [metric.lower()])
+    return place.key
 
 
 def _call(fn, *args):
@@ -57,7 +75,7 @@ def list_metrics() -> list[dict]:
 
 @mcp.tool(annotations=READ_ONLY)
 def list_locations() -> list[str]:
-    """List the locations that have data (lowercase snake_case city names)."""
+    """Location keys that already have data stored. Any other place name also works in the other tools."""
     return _call(get_tiger().list_locations)
 
 
@@ -85,7 +103,7 @@ def get_readings(metric: str, location: str, start: str | None = None, end: str 
         return {"error": f"Invalid date: {e}. Use ISO format like 2023-06-01."}
     if start_dt >= end_dt:
         return {"error": "start must be before end"}
-    return _call(merged.get_readings, metric, location, start_dt, end_dt)
+    return _call(merged.get_readings, metric, _place(location, metric), start_dt, end_dt)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -96,7 +114,7 @@ def get_recent_readings(metric: str, location: str, hours: float = 24,
         start, end = resolve_window(hours)
     except ValueError as e:
         return {"error": f"Invalid time range: {e}. hours must be > 0."}
-    return _call(get_tiger().recent, metric.lower(), location.lower(), start, end, granularity)
+    return _call(get_tiger().recent, metric.lower(), _place(location, metric), start, end, granularity)
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -107,7 +125,7 @@ def compare_recent_to_history(metric: str, location: str, days: int = 7, years: 
     """
     days = max(1, min(days, RECENT_DAYS))
     years = max(1, min(years, 20))
-    return _call(merged.compare_to_history, metric, location, days, years)
+    return _call(merged.compare_to_history, metric, _place(location, metric), days, years)
 
 
 @mcp.tool(annotations=READ_ONLY)

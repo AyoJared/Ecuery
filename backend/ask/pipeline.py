@@ -17,7 +17,7 @@ construction. Free-form SQL stays available to Gemini through the MCP server.
 import json
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -25,6 +25,7 @@ from google import genai
 
 from parser import EnvironmentalQuery, parse_query
 from readings.service import get_readings, recent_cutoff
+from shared import places
 from shared.catalog import CITIES, GLOBAL, METRICS, label as metric_label, unit as metric_unit
 from shared.series import DataUnavailable
 from tiger.repo import get_repo as get_tiger
@@ -61,6 +62,7 @@ class Plan:
     start: datetime
     end: datetime
     operation: str
+    places: dict = field(default_factory=dict)  # location key -> {label, kind, lat, lon, ...}
 
     @property
     def metrics(self) -> list[str]:
@@ -72,7 +74,8 @@ class Plan:
 
     def to_dict(self) -> dict:
         return {"metrics": self.metrics, "locations": self.locations, "start": self.start.isoformat(),
-                "end": self.end.isoformat(), "operation": self.operation}
+                "end": self.end.isoformat(), "operation": self.operation,
+                "places": {k: {x: v[x] for x in ("label", "kind", "lat", "lon")} for k, v in self.places.items()}}
 
 
 class NeedsClarification(Exception):
@@ -80,7 +83,7 @@ class NeedsClarification(Exception):
 
 
 def _nice(location: str) -> str:
-    return CITIES[location].name if location in CITIES else location.replace("_", " ").title()
+    return CITIES[location].name if location in CITIES else places.display_name(location)
 
 
 def make_plan(q: EnvironmentalQuery, now: datetime) -> Plan:
@@ -90,14 +93,19 @@ def make_plan(q: EnvironmentalQuery, now: datetime) -> Plan:
                                  f"Which measurement do you mean? I have {', '.join(m.label for m in METRICS.values())}.")
     city_metrics = [m for m in dict.fromkeys(q.metrics) if not METRICS[m].global_only]
     global_metrics = [m for m in dict.fromkeys(q.metrics) if METRICS[m].global_only]
-    cities = [l for l in dict.fromkeys(q.locations) if l != GLOBAL]
-    if city_metrics and not cities:
-        raise NeedsClarification(q.clarification_question or "Which city are you asking about?")
-    unknown = [l for l in cities if l not in CITIES]
+    names = [l for l in dict.fromkeys(q.locations) if places.slug(l) != GLOBAL]
+    if city_metrics and not names:
+        raise NeedsClarification(q.clarification_question or "Which place are you asking about?")
+    resolved, unknown = [], []
+    for name in names:  # any place on Earth: measured city, a place seen before, or geocoded now
+        try:
+            resolved.append(places.resolve(name))
+        except places.PlaceNotFound:
+            unknown.append(name)
     if unknown:
-        have = ", ".join(c.name for c in CITIES.values())
-        raise NeedsClarification(f"I don't have data for {', '.join(_nice(l) for l in unknown)} yet. "
-                                 f"Try one of: {have}.")
+        raise NeedsClarification(f"I couldn't find {', '.join(repr(u) for u in unknown)}. "
+                                 f"Could you add the country or state?")
+    cities = list(dict.fromkeys(p.key for p in resolved))
 
     operation = q.operation or "summary"
     try:
@@ -120,13 +128,29 @@ def make_plan(q: EnvironmentalQuery, now: datetime) -> Plan:
 
     # CO2 is only measured globally (Mauna Loa), whatever city was asked about.
     pairs = [(m, l) for m in city_metrics for l in cities] + [(m, GLOBAL) for m in global_metrics]
-    return Plan(pairs[:MAX_SERIES], start, end, operation)
+    known = {p.key: p.to_dict() for p in resolved} | ({GLOBAL: places.GLOBAL_PLACE.to_dict()} if global_metrics else {})
+    return Plan(pairs[:MAX_SERIES], start, end, operation, known)
+
+
+MODELED_SOURCE = {"pm25": "Copernicus CAMS", "o3": "Copernicus CAMS", "no2": "Copernicus CAMS",
+                  "temperature": "ECMWF ERA5 and weather-model analysis", "humidity": "ECMWF ERA5 and weather-model analysis",
+                  "streamflow": "GloFAS (nearest modeled river)"}
 
 
 def data_notes(plan: Plan, sources: list[dict]) -> list[str]:
-    """Where each series comes from, so the answer can say so (e.g. that CO2 is global)."""
+    """Where each series comes from, so the answer can say so (e.g. that CO2 is global, or data is modeled)."""
     notes = []
     for m, l in plan.pairs:
+        place = places.get(l)
+        if place and place.kind == "modeled":
+            if m in MODELED_SOURCE:
+                notes.append(f"{place.label} {metric_label(m).lower()} values are modeled estimates from "
+                             f"{MODELED_SOURCE[m]}, not local monitor readings.")
+            else:
+                notes.append(f"No global source for {metric_label(m).lower()}; it is only available for measured US cities.")
+            if m in ("pm25", "o3", "no2"):
+                notes.append("Modeled air-quality history starts August 2022 outside Europe (2019 in Europe).")
+            continue
         if l == GLOBAL:
             notes.append(f"{metric_label(m)} is the global background level measured at Mauna Loa, Hawaii "
                          f"(NOAA GML); it is not city-specific.")
@@ -175,6 +199,18 @@ def fetch(plan: Plan) -> tuple[list[dict], list[dict], list[str]]:
                 baselines.append({"metric": m, "location": l, "unit": metric_unit(m), "by_year": by_year,
                                   "baseline_avg": round(sum(b["avg"] for b in by_year) / len(by_year), 2)})
     return series, baselines, sorted(batch_ids)
+
+
+def load_places(plan: Plan) -> dict:
+    from ingest.on_demand import ensure
+    loaded = {}
+    for key, info in plan.places.items():
+        if info["kind"] == "modeled":
+            metrics = [m for m, l in plan.pairs if l == key]
+            result = ensure(places.get(key), metrics)
+            if any(result.values()):
+                loaded[key] = result
+    return loaded
 
 
 def provenance(batch_ids: list[str]) -> tuple[list[dict], str | None]:
@@ -302,6 +338,10 @@ def ask(question: str, voice: str = "rachel", conversation_id: str | None = None
         if cached_data:
             series, baselines, batch_ids = cached_data["series"], cached_data["baselines"], cached_data["batch_ids"]
         else:
+            # A place nobody asked about before: fetch, fingerprint, anchor and store its data first.
+            loaded = load_places(plan)
+            if loaded:
+                lap("load_place")
             series, baselines, batch_ids = fetch(plan)
             if not any(s["warnings"] for s in series):  # never cache a result with a store missing
                 cache.set(data_key, {"series": series, "baselines": baselines, "batch_ids": batch_ids}, ttl)

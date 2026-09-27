@@ -21,6 +21,8 @@ class Metric:
 class City:
     key: str
     name: str
+    lat: float
+    lon: float
     counties: tuple[str, ...]      # 5-digit state+county FIPS: EPA monitors inside the city
     nws_station: str               # NOAA NWS live observations
     ghcnd_station: str             # NOAA NCEI daily temperature history
@@ -41,14 +43,14 @@ METRICS: dict[str, Metric] = {m.code: m for m in [
 ]}
 
 CITIES: dict[str, City] = {c.key: c for c in [
-    City("philadelphia", "Philadelphia", ("42101",), "KPHL", "USW00013739", "72408013739", "01474500",
+    City("philadelphia", "Philadelphia", 39.9526, -75.1652, ("42101",), "KPHL", "USW00013739", "72408013739", "01474500",
          {"usgs": "Schuylkill River at Philadelphia", "weather": "Philadelphia International Airport"}),
-    City("new_york", "New York", ("36005", "36047", "36061", "36081", "36085"), "KNYC", "USW00094728", "72505394728",
+    City("new_york", "New York", 40.7128, -74.0060, ("36005", "36047", "36061", "36081", "36085"), "KNYC", "USW00094728", "72505394728",
          "01302020", {"usgs": "Bronx River at NY Botanical Garden", "weather": "Central Park"}),
-    City("pittsburgh", "Pittsburgh", ("42003",), "KPIT", "USW00094823", "72520094823", "03086000",
+    City("pittsburgh", "Pittsburgh", 40.4406, -79.9959, ("42003",), "KPIT", "USW00094823", "72520094823", "03086000",
          {"usgs": "Ohio River at Sewickley", "weather": "Pittsburgh International Airport"}),
     # Baltimore City has no real-time AirNow monitors; the surrounding Baltimore County ones (Essex, Padonia) count.
-    City("baltimore", "Baltimore", ("24510", "24005"), "KBWI", "USW00093721", "72406093721", "01589352",
+    City("baltimore", "Baltimore", 39.2904, -76.6122, ("24510", "24005"), "KBWI", "USW00093721", "72406093721", "01589352",
          {"usgs": "Gwynns Falls at Washington Blvd", "weather": "BWI Airport", "air": "Baltimore City + Baltimore County monitors"}),
 ]}
 

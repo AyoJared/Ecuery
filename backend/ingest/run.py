@@ -20,19 +20,16 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 from readings.service import recent_cutoff  # noqa: E402
 
 from . import sources, store  # noqa: E402
+from .commit import commit as commit_batch  # noqa: E402
 from .provenance import Batch, anchor  # noqa: E402
 
 
 def commit(batch: Batch) -> Batch:
-    """Load -> anchor manifest on Solana -> register. Loading first means we only ever vouch for stored rows."""
     started = time.perf_counter()
-    if not batch.rows:
+    anchored = commit_batch(batch)
+    if anchored is None:
         print(f"  - {batch.source:10} {batch.dataset}: no rows, skipped")
         return batch
-    loaded = store.load_tiger(batch) if batch.store == "tiger" else store.load_snowflake(batch)
-    manifest = batch.manifest()
-    anchored = anchor(manifest)
-    store.register(batch, manifest, anchored)
     chain = anchored.get("signature") or f"NOT ANCHORED ({anchored.get('error')})"
     print(f"  ✓ {batch.source:10} {len(batch.rows):>6} rows, {len(batch.requests):>3} files -> {batch.store:9} "
           f"| {batch.batch_id} | solana {str(chain)[:20]}… | {time.perf_counter() - started:.1f}s")
@@ -90,9 +87,10 @@ def main():
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--since", type=date.fromisoformat, default=date(2019, 1, 1))
     parser.add_argument("--drop-demo", action="store_true", help="delete the synthetic demo rows")
+    parser.add_argument("--reanchor", action="store_true", help="anchor batches whose Solana write failed earlier")
     args = parser.parse_args()
-    if not (args.recent or args.history or args.all or args.drop_demo):
-        parser.error("choose --recent, --history, --all and/or --drop-demo")
+    if not (args.recent or args.history or args.all or args.drop_demo or args.reanchor):
+        parser.error("choose --recent, --history, --all, --drop-demo and/or --reanchor")
 
     store.ensure_schema()
     if args.drop_demo:
@@ -101,6 +99,11 @@ def main():
         history(args.since)
     if args.recent or args.all:
         recent()
+    if args.reanchor:
+        for row in store.unanchored():
+            anchored = anchor(row["manifest"])
+            store.set_anchor(row["batch_id"], anchored)
+            print(f"  {row['batch_id']}: {anchored.get('signature') or anchored.get('error')}")
 
 
 if __name__ == "__main__":
