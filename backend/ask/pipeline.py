@@ -35,6 +35,7 @@ from warehouse.repo import get_repo as get_warehouse
 from warehouse.sample_data import HISTORY_START
 
 from .analyze import analyze
+from .factcheck import grounding_badge
 from .cache import TTL_HISTORICAL, TTL_RECENT, TTL_UNDERSTAND, cache_key, get_cache, normalize
 from .memory import get_store, new_conversation_id
 from .transcribe import transcribe
@@ -240,7 +241,7 @@ def build_chart(choice, series: list[dict], baselines: list[dict]) -> dict:
     return chart
 
 
-def anchor(question: str, analysis, series: list[dict], sources: list[dict]) -> dict:
+def anchor(question: str, analysis, series: list[dict], sources: list[dict], fact: dict) -> dict:
     """Step 8: SHA-256 of query + result + source + timestamp, written to Solana as a memo.
 
     `source` commits to the exact agency batches (by their anchored manifest hashes), so the
@@ -251,7 +252,9 @@ def anchor(question: str, analysis, series: list[dict], sources: list[dict]) -> 
     record = build_record(
         query=question,
         result={"answer": analysis.answer_text,
-                "series": [{k: s[k] for k in ("metric", "location", "route", "sources", "summary")} for s in series]},
+                "series": [{k: s[k] for k in ("metric", "location", "route", "sources", "summary")} for s in series],
+                # the grounding check, and a fingerprint of the exact data Gemini was given
+                "fact_check": {k: fact[k] for k in ("ok", "checked", "unsupported", "evidence_sha256")}},
         source=json.dumps({"stores": {s: modes[s] for s in stores},
                            "batches": [{"batch_id": b["batch_id"], "source": b["source"],
                                         "manifest_sha256": b["manifest_sha256"]} for b in sources]},
@@ -295,7 +298,7 @@ def _ask_events(client, question, voice, parsed, understood, conversation, histo
     if card is None:
         analysis_question = question if not history else f"{question} (follow-up to: {history[-1]['question']})"
         card = build_card(client, MODEL, question, analysis_question, plan, provenance, lap)
-        if card["verification"]["badge"]["verified"]:
+        if card["verification"]["badge"]["verified"] and card["fact_check"]["ok"]:
             cache.set(answer_key, card, ttl)
     else:
         lap("answer_cache")
@@ -396,10 +399,10 @@ def ask(question: str, voice: str = "rachel", conversation_id: str | None = None
         # Give Gemini's analysis the earlier question too, so "what about Philadelphia?" reads naturally.
         analysis_question = question if not history else f"{question} (follow-up to: {history[-1]['question']})"
         sources, provenance_error = provenance(batch_ids)
-        analysis = analyze(client, MODEL, analysis_question, plan.to_dict() | {"data_notes": data_notes(plan, sources)},
+        analysis, fact = analyze(client, MODEL, analysis_question, plan.to_dict() | {"data_notes": data_notes(plan, sources)},
                            series, baselines)
         lap("analyze")
-        verification = anchor(question, analysis, series, sources)
+        verification = anchor(question, analysis, series, sources, fact)
         lap("verify")
         card = {
             "answer_text": analysis.answer_text,
@@ -413,9 +416,11 @@ def ask(question: str, voice: str = "rachel", conversation_id: str | None = None
             "provenance": sources,
             **({"provenance_error": provenance_error} if provenance_error else {}),
             "verification": verification,
+            "fact_check": fact,
+            "grounding": grounding_badge(fact),
         }
-        # Only cache complete, verified answers; a cached answer reuses its original Solana proof.
-        if verification["badge"]["verified"] and not any(d["warnings"] for d in card["data"]):
+        # Only cache complete, verified, grounded answers; a cached answer reuses its original Solana proof.
+        if verification["badge"]["verified"] and fact["ok"] and not any(d["warnings"] for d in card["data"]):
             cache.set(answer_key, card, ttl)
     else:
         lap("answer_cache")

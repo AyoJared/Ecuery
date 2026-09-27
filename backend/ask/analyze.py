@@ -7,6 +7,8 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from .factcheck import grounded
+
 
 ABSOLUTE_METRICS = {"temperature", "water_temperature", "humidity"}
 
@@ -72,19 +74,29 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
                                 "baseline_years": [y["year"] for y in b["by_year"]]})
     if comparisons:
         payload["comparisons_to_history"] = comparisons
-    response = client.models.generate_content(
-        model=model,
-        contents=json.dumps(payload, ensure_ascii=False),
-        config=types.GenerateContentConfig(
-            system_instruction=INSTRUCTIONS,
-            response_mime_type="application/json",
-            response_schema=Analysis,
-            temperature=0.2,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-        ),
-    )
-    result = response.parsed or Analysis.model_validate_json(response.text)
 
+    def generate(feedback: str | None) -> Analysis:
+        contents = json.dumps(payload, ensure_ascii=False) + ("\n\n" + feedback if feedback else "")
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=INSTRUCTIONS,
+                response_mime_type="application/json",
+                response_schema=Analysis,
+                temperature=0.2,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        result = response.parsed or Analysis.model_validate_json(response.text)
+        _ensure_baseline(result, comparisons)
+        return result
+
+    # Every figure in the answer must trace to `payload` (the evidence); see ask/factcheck.py.
+    return grounded(generate, payload, question)
+
+
+def _ensure_baseline(result: Analysis, comparisons: list[dict]) -> None:
     # Safety net: a "vs usual" answer must state the baseline. The model occasionally skips it,
     # so add the sentence from the real numbers rather than show an answer that dodges the question.
     for c in comparisons:
@@ -103,4 +115,3 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
                 word = "higher" if c["change_pct"] > 0 else "lower"
                 result.answer_text += (f" That is {change}% {word} than the {years} average "
                                        f"of {b:.1f} {c['unit']} for the same dates.")
-    return result

@@ -17,6 +17,7 @@ from verify.hashing import build_record, memo_for, sha256_hex
 from verify.solana_client import SolanaUnavailable, get_client as get_solana
 
 from .analyze import Analysis
+from .factcheck import grounded, grounding_badge
 
 US_ONLY = {"noaa-storm-events"}
 TYPE_LABEL = ev.EVENT_TYPES
@@ -162,19 +163,25 @@ def analyze_events(client: genai.Client, model: str, question: str, plan: EventP
                "totals": {k: found["summary"][k] for k in ("count", "by_type", "deaths", "injuries", "damage_usd")},
                "by_month": found["summary"]["by_month"], "biggest": found["biggest"][:10], "nearest": found["nearest"],
                "data_notes": notes}
-    response = client.models.generate_content(
-        model=model, contents=json.dumps(payload, ensure_ascii=False, default=str),
-        config=gtypes.GenerateContentConfig(system_instruction=INSTRUCTIONS, response_mime_type="application/json",
-                                            response_schema=Analysis, temperature=0.2,
-                                            automatic_function_calling=gtypes.AutomaticFunctionCallingConfig(disable=True)))
-    return response.parsed or Analysis.model_validate_json(response.text)
+
+    def generate(feedback: str | None) -> Analysis:
+        contents = json.dumps(payload, ensure_ascii=False, default=str) + ("\n\n" + feedback if feedback else "")
+        response = client.models.generate_content(
+            model=model, contents=contents,
+            config=gtypes.GenerateContentConfig(system_instruction=INSTRUCTIONS, response_mime_type="application/json",
+                                                response_schema=Analysis, temperature=0.2,
+                                                automatic_function_calling=gtypes.AutomaticFunctionCallingConfig(disable=True)))
+        return response.parsed or Analysis.model_validate_json(response.text)
+
+    return grounded(generate, json.loads(json.dumps(payload, default=str)), question)
 
 
-def anchor_events(question: str, answer_text: str, plan: EventPlan, found: dict, sources: list[dict]) -> dict:
+def anchor_events(question: str, answer_text: str, plan: EventPlan, found: dict, sources: list[dict], fact: dict) -> dict:
     record = build_record(
         query=question,
         result={"answer": answer_text, "count": found["summary"]["count"], "by_type": found["summary"]["by_type"],
-                "search": plan.to_dict(), "events": [e["id"] for e in found["biggest"]]},
+                "search": plan.to_dict(), "events": [e["id"] for e in found["biggest"]],
+                "fact_check": {k: fact[k] for k in ("ok", "checked", "unsupported", "evidence_sha256")}},
         source=json.dumps({"batches": [{"batch_id": b["batch_id"], "source": b["source"],
                                         "manifest_sha256": b["manifest_sha256"]} for b in sources]},
                           sort_keys=True, separators=(",", ":")))
@@ -195,9 +202,9 @@ def build_card(client, model: str, question: str, analysis_question: str, plan: 
     lap("fetch")
     notes = data_notes(plan)
     sources, provenance_error = provenance_fn(found["batch_ids"])
-    analysis = analyze_events(client, model, analysis_question, plan, found, notes)
+    analysis, fact = analyze_events(client, model, analysis_question, plan, found, notes)
     lap("analyze")
-    verification = anchor_events(question, analysis.answer_text, plan, found, sources)
+    verification = anchor_events(question, analysis.answer_text, plan, found, sources, fact)
     lap("verify")
     p = plan.place
     return {
@@ -217,4 +224,6 @@ def build_card(client, model: str, question: str, analysis_question: str, plan: 
         "provenance": sources,
         **({"provenance_error": provenance_error} if provenance_error else {}),
         "verification": verification,
+        "fact_check": fact,
+        "grounding": grounding_badge(fact),
     }
