@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ecuery demo</title>
+<style>
+  :root { --bg:#f6f7f5; --card:#fff; --ink:#1d2320; --muted:#66706b; --line:#e2e6e3; --accent:#1f7a5a; --warn:#b4531b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  form { display:flex; gap:8px; }
+  input { flex:1; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font:inherit; background:#fff; }
+  button { padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .examples { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 24px; }
+  .examples button { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:400; padding:6px 10px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  .answer { font-size:17px; margin:0 0 12px; }
+  .clarify { color: var(--warn); }
+  audio { width:100%; margin:8px 0 4px; }
+  ul { margin:8px 0; padding-left:20px; color:var(--muted); }
+  .meta { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:13px; color:var(--muted); margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  .badge { color: var(--accent); font-weight:600; }
+  .badge a { color: inherit; }
+  svg { width:100%; height:auto; display:block; margin-top:12px; }
+  .status { color: var(--muted); margin: 8px 0; min-height: 1.5em; }
+  details { margin-top: 12px; font-size: 13px; }
+  pre { overflow-x:auto; background:#f1f3f2; padding:10px; border-radius:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ecuery</h1>
+  <p class="sub">Ask about air quality, CO2 or weather in Baltimore, New York, Philadelphia or Pittsburgh.</p>
+  <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="go">Ask</button></form>
+  <div class="examples" id="ex"></div>
+  <div class="status" id="status"></div>
+  <div id="out"></div>
+</main>
+<script>
+const EXAMPLES = [
+  "How was PM2.5 in Philadelphia over the last 3 days?",
+  "Was air quality in New York worse during the June 2023 wildfire smoke?",
+  "Is ozone in Baltimore higher than usual this week?",
+  "How has CO2 changed in Pittsburgh since 2019?",
+  "Compare smog in Philly and NYC this week",
+];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+EXAMPLES.forEach(q => { const b = document.createElement("button"); b.type = "button"; b.textContent = q;
+  b.onclick = () => { $("q").value = q; ask(q); }; $("ex").appendChild(b); });
+$("f").onsubmit = (e) => { e.preventDefault(); const q = $("q").value.trim() || $("q").placeholder; ask(q); };
+
+async function ask(question) {
+  $("go").disabled = true; $("out").innerHTML = ""; $("status").textContent = "Thinking…";
+  try {
+    const res = await fetch("/ask", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({question}) });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || res.statusText);
+    render(d);
+    $("status").textContent = d.timings ? `Answered in ${Object.values(d.timings).reduce((a, b) => a + b, 0).toFixed(1)}s` : "";
+  } catch (err) { $("status").textContent = "Error: " + err.message; }
+  finally { $("go").disabled = false; }
+}
+
+function render(d) {
+  if (d.status === "needs_clarification") {
+    $("out").innerHTML = `<div class="card"><p class="answer clarify">${esc(d.clarification)}</p></div>`; return;
+  }
+  const v = d.verification;
+  $("out").innerHTML = `<div class="card">
+    <p class="answer">${esc(d.answer_text)}</p>
+    <audio id="player" controls src="${esc(d.audio_url)}"></audio>
+    ${d.comparison ? `<p>${esc(d.comparison)}</p>` : ""}
+    ${d.trends?.length ? `<ul>${d.trends.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+    ${chart(d.chart)}
+    <div class="meta">
+      ${v.badge.verified
+        ? `<span class="badge">✓ ${esc(v.badge.label)} · <a href="${esc(v.explorer_url)}" target="_blank" rel="noopener">${esc(v.signature.slice(0, 10))}…</a></span>`
+        : `<span class="clarify" title="${esc(v.error)}">✗ ${esc(v.badge.label)}</span>`}
+      <span>Sources: ${d.data.map(s => Object.keys(s.sources).join(" + ")).join(", ")}</span>
+      <span>Route: ${d.data.map(s => s.route).join(", ")}</span>
+    </div>
+    <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>
+  </div>`;
+  // Browsers may block autoplay after a slow request; the controls are there as a fallback.
+  $("player").play().catch(() => {});
+}
+
+function chart(c) {
+  const W = 700, H = 240, P = {l: 48, r: 12, t: 28, b: 28};
+  const colors = ["#1f7a5a", "#2f5fb3", "#b4531b", "#7a3fa0"];
+  const title = `<text x="${P.l}" y="16" font-size="13" font-weight="600" fill="#1d2320">${esc(c.title)}</text>`;
+  if (c.bars) {
+    const max = Math.max(...c.bars.map(b => b.value)) * 1.1 || 1, bw = (W - P.l - P.r) / c.bars.length;
+    const bars = c.bars.map((b, i) => { const h = (H - P.t - P.b) * b.value / max, x = P.l + i * bw + 6, y = H - P.b - h;
+      return `<rect x="${x}" y="${y}" width="${bw - 12}" height="${h}" rx="4" fill="${b.highlight ? colors[2] : colors[0]}"/>
+        <text x="${x + (bw - 12) / 2}" y="${y - 4}" font-size="11" text-anchor="middle" fill="#1d2320">${b.value}</text>
+        <text x="${x + (bw - 12) / 2}" y="${H - 10}" font-size="11" text-anchor="middle" fill="#66706b">${esc(b.label)}</text>`; }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}">${title}${bars}</svg>`;
+  }
+  const pts = c.series.flatMap(s => s.points);
+  if (!pts.length) return "";
+  const ts = pts.map(p => Date.parse(p.time)), vs = pts.map(p => p.value);
+  const t0 = Math.min(...ts), t1 = Math.max(...ts) || t0 + 1, v0 = Math.min(0, ...vs), v1 = Math.max(...vs) * 1.08;
+  const x = t => P.l + (W - P.l - P.r) * (t - t0) / ((t1 - t0) || 1), y = v => H - P.b - (H - P.t - P.b) * (v - v0) / ((v1 - v0) || 1);
+  const lines = c.series.map((s, i) => `<polyline fill="none" stroke="${colors[i % 4]}" stroke-width="2" points="${
+    s.points.map(p => `${x(Date.parse(p.time)).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ")}"/>`).join("");
+  const legend = c.series.map((s, i) => `<text x="${W - P.r}" y="${16 + i * 14}" font-size="11" text-anchor="end" fill="${colors[i % 4]}">${esc(s.name)}</text>`).join("");
+  const fmt = t => new Date(t).toLocaleDateString(undefined, {month: "short", day: "numeric", year: (t1 - t0) > 2e10 ? "numeric" : undefined});
+  const axis = `<line x1="${P.l}" y1="${H - P.b}" x2="${W - P.r}" y2="${H - P.b}" stroke="#e2e6e3"/>
+    <text x="${P.l - 6}" y="${y(v1) + 4}" font-size="11" text-anchor="end" fill="#66706b">${v1.toFixed(0)}</text>
+    <text x="${P.l - 6}" y="${y(v0) + 4}" font-size="11" text-anchor="end" fill="#66706b">${v0.toFixed(0)}</text>
+    <text x="${P.l}" y="${H - 8}" font-size="11" fill="#66706b">${fmt(t0)}</text>
+    <text x="${W - P.r}" y="${H - 8}" font-size="11" text-anchor="end" fill="#66706b">${fmt(t1)}</text>
+    <text x="12" y="${(H) / 2}" font-size="11" fill="#66706b" transform="rotate(-90 12 ${H / 2})" text-anchor="middle">${esc(c.y_label)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}">${title}${legend}${axis}${lines}</svg>`;
+}
+</script>
+</body>
+</html>

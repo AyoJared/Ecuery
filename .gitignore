@@ -15,3 +15,7 @@ node_modules/
 # Snowflake key-pair auth
 *.p8
 *.pem
+
+# Solana wallet (backend signer)
+solana_keypair.json
+*-keypair.json

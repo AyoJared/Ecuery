@@ -1,18 +1,22 @@
 """Step 8c/8d: write the hash to Solana as a memo transaction, get a signature.
 
-MockSolanaClient simulates devnet: it returns realistic base58 signatures,
-slots and block times, and keeps an in-memory "ledger" so transactions can be
-looked up again for verification. To go live, implement SolanaClient against
-devnet (solders + solana-py: build a Memo program instruction, sign with the
-backend keypair, send_transaction, then get_transaction to read it back) and
-swap it in via get_client().
+RpcSolanaClient sends a real Memo program transaction, signed by the backend
+wallet (SOLANA_KEYPAIR_FILE), and reads memos back from the chain, so
+verification survives restarts and anyone can check it on the explorer.
+Without a keypair file, MockSolanaClient simulates this in memory.
+
+Wallet status / funding: `python -m verify.wallet`
 """
 
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Protocol
+
+import httpx
 
 MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
 _B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -51,8 +55,13 @@ def explorer_url(signature: str, cluster: str = "devnet") -> str:
     return f"https://explorer.solana.com/tx/{signature}{suffix}"
 
 
+class SolanaUnavailable(RuntimeError):
+    pass
+
+
 class SolanaClient(Protocol):
     cluster: str
+    mode: str
 
     def send_memo(self, memo: str) -> MemoTransaction: ...
 
@@ -60,6 +69,8 @@ class SolanaClient(Protocol):
 
 
 class MockSolanaClient:
+    mode = "mock"
+
     def __init__(self, cluster: str = "devnet"):
         self.cluster = cluster
         self._ledger: dict[str, MemoTransaction] = {}
@@ -85,11 +96,106 @@ class MockSolanaClient:
         return self._ledger.get(signature)
 
 
+class RpcSolanaClient:
+    mode = "rpc"
+
+    def __init__(self, keypair_file: Path, cluster: str = "devnet", rpc_url: str | None = None):
+        from solders.keypair import Keypair
+
+        self.keypair = Keypair.from_bytes(bytes(json.loads(keypair_file.read_text())))
+        self.cluster = cluster
+        self.rpc_url = rpc_url or f"https://api.{cluster}.solana.com"
+        self.fee_payer = str(self.keypair.pubkey())
+        self._http = httpx.Client(timeout=30)
+
+    def _rpc(self, method: str, params: list):
+        try:
+            body = self._http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).json()
+        except httpx.HTTPError as e:
+            raise SolanaUnavailable(f"Can't reach Solana {self.cluster}: {e}") from None
+        if "error" in body:
+            message = body["error"].get("message", str(body["error"]))
+            if "no record of a prior credit" in message or "insufficient" in message.lower():
+                message = f"Wallet {self.fee_payer} has no {self.cluster} SOL. Fund it: python -m verify.wallet"
+            raise SolanaUnavailable(f"Solana {method} failed: {message}")
+        return body["result"]
+
+    def balance(self) -> float:
+        return self._rpc("getBalance", [self.fee_payer, {"commitment": "confirmed"}])["value"] / 1e9
+
+    def send_memo(self, memo: str) -> MemoTransaction:
+        import base64
+
+        from solders.hash import Hash
+        from solders.instruction import AccountMeta, Instruction
+        from solders.message import Message
+        from solders.pubkey import Pubkey
+        from solders.transaction import Transaction
+
+        blockhash = Hash.from_string(self._rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
+        ix = Instruction(Pubkey.from_string(MEMO_PROGRAM_ID), memo.encode(),
+                         [AccountMeta(self.keypair.pubkey(), is_signer=True, is_writable=False)])
+        tx = Transaction([self.keypair], Message.new_with_blockhash([ix], self.keypair.pubkey(), blockhash), blockhash)
+        signature = self._rpc("sendTransaction", [base64.b64encode(bytes(tx)).decode(),
+                                                  {"encoding": "base64", "preflightCommitment": "confirmed"}])
+        self._wait_confirmed(signature)
+        return self.get_transaction(signature) or MemoTransaction(
+            signature, memo, 0, int(time.time()), self.cluster, self.fee_payer)
+
+    def _wait_confirmed(self, signature: str, timeout: float = 30) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self._rpc("getSignatureStatuses", [[signature]])["value"][0]
+            if status and status.get("err"):
+                raise SolanaUnavailable(f"Transaction {signature} failed: {status['err']}")
+            if status and status.get("confirmationStatus") in ("confirmed", "finalized"):
+                return
+            time.sleep(0.4)
+        raise SolanaUnavailable(f"Transaction {signature} not confirmed after {timeout:.0f}s")
+
+    def get_transaction(self, signature: str) -> MemoTransaction | None:
+        try:
+            tx = self._rpc("getTransaction", [signature, {"encoding": "jsonParsed", "commitment": "confirmed",
+                                                          "maxSupportedTransactionVersion": 0}])
+        except SolanaUnavailable as e:
+            if "Invalid param" in str(e) or "WrongSize" in str(e):
+                return None  # not a valid signature
+            raise
+        if not tx:
+            return None
+        message = tx["transaction"]["message"]
+        memo = next((ix.get("parsed") for ix in message["instructions"]
+                     if ix.get("programId") == MEMO_PROGRAM_ID), None)
+        if memo is None:
+            return None
+        return MemoTransaction(
+            signature=signature,
+            memo=memo,
+            slot=tx["slot"],
+            block_time=tx.get("blockTime") or 0,
+            cluster=self.cluster,
+            fee_payer=message["accountKeys"][0]["pubkey"],
+        )
+
+
 _client: SolanaClient | None = None
+
+
+def keypair_path() -> Path | None:
+    value = os.getenv("SOLANA_KEYPAIR_FILE")
+    if not value:
+        return None
+    path = Path(value)
+    return path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
 
 
 def get_client() -> SolanaClient:
     global _client
     if _client is None:
-        _client = MockSolanaClient(cluster=os.getenv("SOLANA_CLUSTER", "devnet"))
+        cluster = os.getenv("SOLANA_CLUSTER", "devnet")
+        path = keypair_path()
+        if path:
+            _client = RpcSolanaClient(path, cluster, os.getenv("SOLANA_RPC_URL"))
+        else:
+            _client = MockSolanaClient(cluster)
     return _client

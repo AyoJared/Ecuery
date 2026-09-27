@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 load_dotenv(Path(__file__).parent / ".env.local")
 
+from ask import router as ask_router
 from readings import router as readings_router
 from tiger import router as tiger_router
 from verify import router as verify_router
@@ -12,6 +13,7 @@ from voice import router as voice_router
 from warehouse import router as warehouse_router
 
 app = FastAPI(title="Ecuery API")
+app.include_router(ask_router)
 app.include_router(readings_router)
 app.include_router(tiger_router)
 app.include_router(warehouse_router)
