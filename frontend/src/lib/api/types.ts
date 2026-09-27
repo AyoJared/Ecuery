@@ -97,6 +97,14 @@ export type ReadingsAnswer = AnswerBase & {
   kind?: "readings";
   plan: Plan;
   data: { metric: string; location: string; unit: string; warnings: string[]; summary: Record<string, number> | null }[];
+  /** Same period in earlier years, sent for compare_history questions whatever chart type was chosen. */
+  historical_baselines?: {
+    metric: string;
+    location: string;
+    unit: string;
+    by_year: { year: number; avg: number; max: number }[];
+    baseline_avg: number;
+  }[];
 };
 
 /** Disasters and events (tornadoes, earthquakes…): backend/ask/events_answer.py. */

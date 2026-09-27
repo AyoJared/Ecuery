@@ -1,19 +1,22 @@
 @import "tailwindcss";
 
-/* Design tokens — "evergreen night": forest-tinted darks, leaf accent, sunlight amber. */
+/* Design tokens: "ocean and sun". Slate-navy base, shades of ocean blue, amber highlights,
+   and green kept for meaning only ("verified", healthy values). Raw values for JS live in lib/palette.ts. */
 @theme {
-  --color-canvas: #08120e;
-  --color-surface: #0e1b16;
-  --color-surface-raised: #142520;
-  --color-line: rgb(214 235 222 / 0.08);
-  --color-line-strong: rgb(214 235 222 / 0.14);
-  --color-ink: #eef2ea;
-  --color-ink-muted: #a3b1a8;
-  --color-ink-faint: #6b7a71;
-  --color-accent: #8fd6a5;
-  --color-accent-soft: #b5e6c3;
+  --color-canvas: #0a1118;
+  --color-surface: #101a24;
+  --color-surface-raised: #16232f;
+  --color-line: rgb(196 216 236 / 0.08);
+  --color-line-strong: rgb(196 216 236 / 0.14);
+  --color-ink: #eef3f8;
+  --color-ink-muted: #a3b2c2;
+  --color-ink-faint: #6a7888;
+  --color-accent: #7cc4f5;
+  --color-accent-soft: #b8defa;
+  --color-accent-deep: #3d9be0;
   --color-sun: #f2c078;
   --color-sun-soft: #f7d7a3;
+  --color-good: #7fd6a0;
   --color-wildfire: #fb923c;
 
   --font-sans: var(--font-geist-sans);
@@ -35,18 +38,18 @@ html {
 }
 
 ::selection {
-  background: rgb(143 214 165 / 0.3);
+  background: rgb(124 196 245 / 0.3);
   color: #fff;
 }
 
-/* Slowly drifting leaf → ocean → sun gradient for the hero headline */
+/* Slowly drifting light blue → ocean → deep blue → sun gradient for the hero headline */
 .text-flow {
   background-image: linear-gradient(
     100deg,
     var(--color-accent-soft) 0%,
-    var(--color-accent) 25%,
-    #7cc4f5 50%,
-    var(--color-sun) 75%,
+    var(--color-accent) 28%,
+    var(--color-accent-deep) 52%,
+    var(--color-sun) 78%,
     var(--color-accent-soft) 100%
   );
   background-size: 200% 100%;
@@ -258,7 +261,7 @@ html {
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
   border-radius: 999px;
-  background: rgb(8 18 14 / 0.85);
+  background: rgb(10 17 24 / 0.85);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
   transition:
     transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
@@ -269,7 +272,7 @@ html {
 .gm:hover .gm-badge,
 .gm:focus-visible .gm-badge {
   transform: scale(1.25);
-  background: color-mix(in srgb, var(--c) 22%, rgb(8 18 14));
+  background: color-mix(in srgb, var(--c) 22%, rgb(10 17 24));
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--c) 30%, transparent),
     0 0 18px color-mix(in srgb, var(--c) 55%, transparent);
@@ -291,7 +294,7 @@ html {
   padding: 4px 9px;
   border: 1px solid var(--color-line-strong);
   border-radius: 8px;
-  background: rgb(8 18 14 / 0.92);
+  background: rgb(10 17 24 / 0.92);
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 12px;

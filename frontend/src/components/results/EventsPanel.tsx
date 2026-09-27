@@ -8,14 +8,9 @@ import { formatDate } from "@/lib/format";
 import { hazardColors } from "@/lib/hazard-icons";
 import { EventGlobe, eventKey } from "./EventGlobe";
 
-const compactUsd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-});
 const whole = new Intl.NumberFormat("en-US");
 
-/** Counts, a globe of where things happened, and the biggest events. Compact = no globe, top 3 only. */
+/** Event types, a globe of where things happened, and the biggest events (the headline above shows the totals). Compact = no globe, top 3 only. */
 export function EventsPanel({ answer, compact = false }: { answer: EventsAnswer; compact?: boolean }) {
   const { events, map } = answer;
   const [selected, setSelected] = useState<string | null>(null);
@@ -27,40 +22,11 @@ export function EventsPanel({ answer, compact = false }: { answer: EventsAnswer;
     if (key) rowRefs.current.get(key)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  const stats = [
-    { label: events.count === 1 ? "Event" : "Events", value: whole.format(events.count), always: true },
-    { label: "Deaths", value: whole.format(events.deaths), always: false, show: events.deaths > 0 },
-    { label: "Injuries", value: whole.format(events.injuries), always: false, show: events.injuries > 0 },
-    {
-      label: "Damage",
-      value: compactUsd.format(events.damage_usd),
-      always: false,
-      show: events.damage_usd > 0,
-    },
-    {
-      label: "Strongest",
-      value: events.biggest[0]?.strength ?? "",
-      always: false,
-      show: !!events.biggest[0]?.strength,
-    },
-  ]
-    .filter((s) => s.always || s.show)
-    .slice(0, 4);
-
   const listed = compact ? events.biggest.slice(0, 3) : showAll ? events.biggest : events.biggest.slice(0, 6);
   const types = Object.entries(events.by_type).sort((a, b) => b[1] - a[1]);
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-2xl border border-line bg-surface/40 px-4 py-3">
-            <p className="text-2xl font-semibold tracking-tight text-ink tabular-nums">{s.value}</p>
-            <p className="text-xs text-ink-faint">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
       {types.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {types.map(([type, n]) => (

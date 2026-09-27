@@ -50,3 +50,24 @@ export function formatTick(iso: string, granularity: string) {
 /** Total seconds the backend spent, from its per-step timings. */
 export const totalSeconds = (timings: Record<string, number>) =>
   Math.round(Object.values(timings).reduce((a, b) => a + b, 0) * 10) / 10;
+
+// Backend source ids ("epa-aqs", "noaa-gml", "usgs-earthquakes"…) → the agency name people know.
+const AGENCIES: Record<string, string> = {
+  epa: "EPA",
+  noaa: "NOAA",
+  usgs: "USGS",
+  nasa: "NASA",
+  ecmwf: "ECMWF",
+  copernicus: "Copernicus",
+  cams: "Copernicus",
+  openaq: "OpenAQ",
+  glofas: "GloFAS",
+  nsidc: "NSIDC",
+  ciffc: "CIFFC",
+};
+
+export function sourceName(id: string) {
+  if (/^open-?meteo/i.test(id)) return "Open-Meteo";
+  const key = id.toLowerCase().split(/[-_\s]/)[0];
+  return AGENCIES[key] ?? (id.length <= 6 ? id.toUpperCase() : id);
+}

@@ -100,7 +100,7 @@ function Placeholder({ clip }: { clip: HeroClip }) {
       style={{
         background: `radial-gradient(ellipse 60% 70% at 70% 40%, color-mix(in srgb, ${color} 28%, transparent), transparent 70%),
           radial-gradient(ellipse 50% 60% at 20% 80%, color-mix(in srgb, ${color} 14%, transparent), transparent 70%),
-          #0a1712`,
+          #0b1420`,
       }}
     >
       <div className="absolute right-[8%] top-1/2 size-[42vmin] -translate-y-1/2 opacity-[0.12]" style={{ color }}>

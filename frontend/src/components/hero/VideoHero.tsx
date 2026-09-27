@@ -96,16 +96,16 @@ export function VideoHero() {
           />
         ))}
         {/* Grade every clip to the palette and keep text readable */}
-        <div className="absolute inset-0 bg-[#0b2a1c]/25 mix-blend-multiply" />
+        <div className="absolute inset-0 bg-[#0b1f3a]/30 mix-blend-multiply" />
         <div className="absolute inset-0 bg-gradient-to-b from-canvas/45 via-transparent via-45% to-canvas" />
         {/* Soft scrim just behind the headline, so the rest of the footage can stay bright */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_32%_at_50%_46%,rgb(8_18_14/0.5),transparent)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_32%_at_50%_46%,rgb(10_17_24/0.5),transparent)]" />
       </div>
 
       {/* Headline */}
       <motion.div
         style={{ opacity: contentOpacity, y: contentY }}
-        className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center px-4 pt-16 text-center [text-shadow:0_1px_18px_rgb(8_18_14/0.55)] sm:px-6"
+        className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center px-4 pt-16 text-center [text-shadow:0_1px_18px_rgb(10_17_24/0.55)] sm:px-6"
       >
         <h1 className="flex flex-col items-center text-ink">
           <motion.span
@@ -124,7 +124,7 @@ export function VideoHero() {
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 1.1, delay: 0.25, ease: EASE }}
             // The gradient text can't take a text-shadow, so it gets a drop-shadow filter instead.
-            className="text-flow mt-1 pb-2 text-7xl font-semibold leading-none tracking-[-0.055em] [text-shadow:none] drop-shadow-[0_2px_18px_rgb(8_18_14/0.55)] sm:text-8xl lg:text-9xl"
+            className="text-flow mt-1 pb-2 text-7xl font-semibold leading-none tracking-[-0.055em] [text-shadow:none] drop-shadow-[0_2px_18px_rgb(10_17_24/0.55)] sm:text-8xl lg:text-9xl"
           >
             Just ask.
           </motion.span>
@@ -160,7 +160,7 @@ export function VideoHero() {
       </motion.div>
 
       {/* Caption for the current clip + clip progress */}
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-7 [text-shadow:0_1px_12px_rgb(8_18_14/0.7)] sm:flex-row sm:items-end sm:justify-between sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-7 [text-shadow:0_1px_12px_rgb(10_17_24/0.7)] sm:flex-row sm:items-end sm:justify-between sm:px-6">
         <div className="min-h-[3.25rem]" aria-live="polite">
           <AnimatePresence mode="wait">
             <motion.div

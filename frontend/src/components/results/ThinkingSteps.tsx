@@ -70,7 +70,7 @@ export function ThinkingSteps({ done, onFinished, compact = false }: ThinkingSte
             >
               <span className="grid size-5 shrink-0 place-items-center">
                 {state === "done" ? (
-                  <svg className="size-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg className="size-4 text-good" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m5 12 5 5L20 7" />
                   </svg>
                 ) : state === "active" ? (

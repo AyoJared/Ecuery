@@ -92,7 +92,7 @@ export function VerifiedCard() {
           <span className="text-ink-faint">recorded on</span>
           <span className="text-ink">Solana</span>
         </div>
-        <div className="mt-2 flex items-center gap-2 border-t border-line pt-2 text-accent">
+        <div className="mt-2 flex items-center gap-2 border-t border-line pt-2 text-good">
           <svg
             className="size-3.5"
             viewBox="0 0 24 24"

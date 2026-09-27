@@ -76,7 +76,7 @@ export function AskSection() {
           <div className="relative">
             <div
               aria-hidden
-              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 aspect-square w-[120%] max-w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(124_196_245/0.26),rgb(143_214_165/0.12)_55%,transparent)] blur-2xl animate-[breathe_7s_ease-in-out_infinite_alternate] motion-reduce:animate-none"
+              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 aspect-square w-[120%] max-w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(124_196_245/0.26),rgb(61_155_224/0.12)_55%,transparent)] blur-2xl animate-[breathe_7s_ease-in-out_infinite_alternate] motion-reduce:animate-none"
             />
             <motion.div
               ref={globeBoxRef}

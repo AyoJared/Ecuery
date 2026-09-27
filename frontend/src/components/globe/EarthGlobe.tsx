@@ -134,7 +134,7 @@ export function EarthGlobe({ events, selectedId, onSelect, size, paused, homeVie
       hexPolygonResolution={3}
       hexPolygonMargin={0.3}
       hexPolygonUseDots
-      hexPolygonColor={() => "rgba(222, 238, 214, 0.62)"}
+      hexPolygonColor={() => "rgba(226, 236, 246, 0.6)"}
       htmlElementsData={events}
       htmlLat="lat"
       htmlLng="lng"

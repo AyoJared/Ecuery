@@ -307,7 +307,7 @@ function AnswerStage({ progress, still }: { progress: MotionValue<number>; still
           </linearGradient>
         </defs>
         {[0.25, 0.5, 0.75].map((f) => (
-          <line key={f} x1={0} x2={w} y1={h * f} y2={h * f} stroke="rgb(214 235 222 / 0.06)" />
+          <line key={f} x1={0} x2={w} y1={h * f} y2={h * f} stroke="rgb(196 216 236 / 0.06)" />
         ))}
         <motion.path d={area} fill="url(#hiw-area)" style={{ opacity: still ? 1 : areaOpacity }} />
         <motion.path
@@ -334,7 +334,7 @@ function AnswerStage({ progress, still }: { progress: MotionValue<number>; still
       </svg>
       <span className="inline-flex w-fit items-center gap-2 rounded-full border border-line px-3 py-1 text-xs text-ink-muted">
         <svg
-          className="size-3.5 text-accent"
+          className="size-3.5 text-good"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

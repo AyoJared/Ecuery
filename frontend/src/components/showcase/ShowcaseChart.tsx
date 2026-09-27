@@ -14,12 +14,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { chartTheme, palette } from "@/lib/palette";
 import type { ShowcaseExample } from "@/lib/showcase";
 
-const ACCENT = "#8fd6a5";
-const SUN = "#f2c078";
-const MUTED = "#22332c";
-const AXIS = { fontSize: 11, fill: "#6b7a71" };
+const ACCENT = palette.ocean;
+const SUN = palette.sun;
+const MUTED = palette.muted;
+const AXIS = chartTheme.axis;
 
 export function ShowcaseChart({ example }: { example: ShowcaseExample }) {
   const { chart, data, unit, highlight, yDomain } = example;
@@ -29,14 +30,12 @@ export function ShowcaseChart({ example }: { example: ShowcaseExample }) {
   };
   const axes = (
     <>
-      <CartesianGrid stroke="rgba(214,235,222,0.06)" vertical={false} />
+      <CartesianGrid stroke={chartTheme.grid} vertical={false} />
       <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
       <YAxis tick={AXIS} tickLine={false} axisLine={false} width={40} domain={yDomain ?? [0, "auto"]} />
       <Tooltip
         cursor={{ fill: "rgba(255,255,255,0.04)", stroke: "rgba(255,255,255,0.1)" }}
-        contentStyle={{ background: "#142520", border: "1px solid rgba(214,235,222,0.14)", borderRadius: 10, fontSize: 12 }}
-        labelStyle={{ color: "#a3b1a8" }}
-        itemStyle={{ color: "#eef2ea" }}
+        {...chartTheme.tooltip}
         formatter={(value) => [`${value} ${unit}`, ""]}
         separator=""
       />

@@ -10,6 +10,8 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,26 +19,30 @@ import {
 } from "recharts";
 import { formatDate, formatTick } from "@/lib/format";
 import type { ChartSpec } from "@/lib/api/types";
+import type { Insight } from "@/lib/answer-insights";
+import { chartTheme, palette, seriesColors } from "@/lib/palette";
 
-const SERIES_COLORS = ["#8fd6a5", "#7cc4f5", "#f2c078", "#fb7185"];
-const MUTED = "#22332c";
-const AXIS = { fontSize: 11, fill: "#6b7a71" };
-const GRID = "rgba(214,235,222,0.06)";
-const TOOLTIP = {
-  contentStyle: {
-    background: "#142520",
-    border: "1px solid rgba(214,235,222,0.14)",
-    borderRadius: 10,
-    fontSize: 12,
-  },
-  labelStyle: { color: "#a3b1a8" },
-  itemStyle: { color: "#eef2ea" },
+type References = Insight["references"];
+
+const SERIES_COLORS = seriesColors;
+const MUTED = palette.muted;
+const AXIS = chartTheme.axis;
+const GRID = chartTheme.grid;
+const TOOLTIP = chartTheme.tooltip;
+
+type AnswerChartProps = {
+  chart: ChartSpec;
+  height?: number;
+  /** Dashed horizontal lines (thresholds, the usual level). Only drawn when inside the data's range. */
+  references?: References;
 };
 
 // Renders the backend's chart spec: {type:"line", series:[…]} or {type:"bar", bars:[…]}.
-export function AnswerChart({ chart, height = 300 }: { chart: ChartSpec; height?: number }) {
-  if (chart.type === "bar" && chart.bars?.length) return <Bars chart={chart} height={height} />;
-  if (chart.series?.some((s) => s.points.length)) return <Lines chart={chart} height={height} />;
+export function AnswerChart({ chart, height = 300, references = [] }: AnswerChartProps) {
+  if (chart.type === "bar" && chart.bars?.length)
+    return <Bars chart={chart} height={height} references={references} />;
+  if (chart.series?.some((s) => s.points.length))
+    return <Lines chart={chart} height={height} references={references} />;
   return (
     <div
       className="grid place-items-center rounded-2xl border border-dashed border-line text-sm text-ink-faint"
@@ -47,7 +53,7 @@ export function AnswerChart({ chart, height = 300 }: { chart: ChartSpec; height?
   );
 }
 
-function Lines({ chart, height }: { chart: ChartSpec; height: number }) {
+function Lines({ chart, height, references }: { chart: ChartSpec; height: number; references: References }) {
   const series = (chart.series ?? []).filter((s) => s.points.length);
   const granularity = series[0]?.granularity ?? "daily";
   const unit = series[0]?.unit ?? "";
@@ -62,6 +68,15 @@ function Lines({ chart, height }: { chart: ChartSpec; height: number }) {
     }
   }
   const data = [...rows.values()].sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+  // Label the single highest point right on the chart (single-series charts only).
+  const peak =
+    series.length === 1
+      ? series[0].points.reduce<(typeof series)[0]["points"][0] | null>(
+          (best, p) => (p.value != null && (best?.value == null || p.value > best.value) ? p : best),
+          null,
+        )
+      : null;
 
   const shared = {
     data,
@@ -87,6 +102,7 @@ function Lines({ chart, height }: { chart: ChartSpec; height: number }) {
         formatter={(value, name) => [`${value} ${unit}`, series.length > 1 ? name : ""]}
         separator={series.length > 1 ? ": " : ""}
       />
+      {referenceLines(references)}
     </>
   );
 
@@ -110,11 +126,28 @@ function Lines({ chart, height }: { chart: ChartSpec; height: number }) {
             connectNulls
             animationDuration={1200}
           />
+          {peak?.value != null && (
+            <ReferenceDot
+              x={peak.time}
+              y={peak.value}
+              r={4}
+              fill={SERIES_COLORS[0]}
+              stroke={palette.canvas}
+              strokeWidth={2}
+              label={{
+                value: `${Math.round(peak.value * 10) / 10}`,
+                position: "top",
+                fill: palette.ink,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            />
+          )}
         </AreaChart>
       ) : (
         <LineChart {...shared}>
           {axes}
-          <Legend wrapperStyle={{ fontSize: 12, color: "#a3b1a8" }} />
+          <Legend wrapperStyle={{ fontSize: 12, color: palette.inkMuted }} />
           {series.map((s, i) => (
             <Line
               key={s.name}
@@ -133,7 +166,7 @@ function Lines({ chart, height }: { chart: ChartSpec; height: number }) {
   );
 }
 
-function Bars({ chart, height }: { chart: ChartSpec; height: number }) {
+function Bars({ chart, height, references }: { chart: ChartSpec; height: number; references: References }) {
   const bars = chart.bars ?? [];
   // Comparison charts highlight the selected period; plain counts (e.g. events per month) color every bar.
   const anyHighlight = bars.some((b) => b.highlight);
@@ -165,6 +198,7 @@ function Bars({ chart, height }: { chart: ChartSpec; height: number }) {
           formatter={(v) => [v, ""]}
           separator=""
         />
+        {referenceLines(references)}
         <Bar dataKey="value" radius={[6, 6, 0, 0]} animationDuration={1000}>
           {bars.map((b) => (
             <Cell key={b.label} fill={b.highlight || !anyHighlight ? SERIES_COLORS[0] : MUTED} />
@@ -172,5 +206,77 @@ function Bars({ chart, height }: { chart: ChartSpec; height: number }) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+function referenceLines(references: References) {
+  return references.map((r) => (
+    <ReferenceLine
+      key={r.label}
+      y={r.y}
+      stroke={r.color}
+      strokeDasharray="5 5"
+      strokeOpacity={0.7}
+      ifOverflow={r.extend ? "extendDomain" : "hidden"}
+      label={{ value: r.label, position: "insideTopRight", fill: r.color, fontSize: 11 }}
+    />
+  ));
+}
+
+/** The same numbers as the chart, as a table (for exact values and screen readers). */
+export function ChartTable({ chart }: { chart: ChartSpec }) {
+  const bars = chart.type === "bar" ? (chart.bars ?? []) : [];
+  const series = (chart.series ?? []).filter((s) => s.points.length);
+  const granularity = series[0]?.granularity ?? "daily";
+  const unit = series[0]?.unit ?? "";
+  const times = [...new Set(series.flatMap((s) => s.points.map((p) => p.time)))].sort();
+  const valueAt = (i: number, t: string) => series[i].points.find((p) => p.time === t)?.value;
+
+  return (
+    <div className="max-h-80 overflow-auto rounded-2xl border border-line">
+      <table className="w-full text-left text-sm">
+        <thead className="sticky top-0 bg-surface text-xs text-ink-faint">
+          {bars.length ? (
+            <tr>
+              <th className="px-4 py-2.5 font-medium">{chart.x_label || "Period"}</th>
+              <th className="px-4 py-2.5 text-right font-medium">{chart.y_label}</th>
+            </tr>
+          ) : (
+            <tr>
+              <th className="px-4 py-2.5 font-medium">Date</th>
+              {series.map((s) => (
+                <th key={s.name} className="px-4 py-2.5 text-right font-medium">
+                  {series.length > 1 ? s.name : `${chart.y_label || s.name}`}
+                </th>
+              ))}
+            </tr>
+          )}
+        </thead>
+        <tbody className="divide-y divide-line tabular-nums">
+          {bars.length
+            ? bars.map((b) => (
+                <tr key={b.label} className={b.highlight ? "text-ink" : "text-ink-muted"}>
+                  <td className="px-4 py-2">{b.label}</td>
+                  <td className="px-4 py-2 text-right">{b.value}</td>
+                </tr>
+              ))
+            : times.map((t) => (
+                <tr key={t} className="text-ink-muted">
+                  <td className="px-4 py-2">
+                    {granularity === "hourly" ? formatTick(t, "hourly") : formatDate(t)}
+                  </td>
+                  {series.map((s, i) => {
+                    const v = valueAt(i, t);
+                    return (
+                      <td key={s.name} className="px-4 py-2 text-right text-ink">
+                        {v == null ? "–" : `${v} ${series.length > 1 ? s.unit : unit}`}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
