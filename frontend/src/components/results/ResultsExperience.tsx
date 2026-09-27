@@ -3,8 +3,9 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { API_MODE, askQuestion } from "@/lib/api/client";
-import { isEventsAnswer, type AnsweredResponse, type AskResponse } from "@/lib/api/types";
+import { readHandoff } from "@/lib/answer-handoff";
+import { askQuestion } from "@/lib/api/client";
+import { hasEventsPlan, isForecastAnswer, isWebAnswer, type AnsweredResponse, type AskResponse } from "@/lib/api/types";
 import { eventTypeLabel } from "@/lib/event-types";
 import { AnswerView } from "./AnswerView";
 import { FollowUpInput } from "./FollowUpInput";
@@ -41,8 +42,16 @@ export function ResultsExperience({ question }: { question: string }) {
     }
   }
 
-  // First question: fetched on mount (the page remounts this component for each new ?q=).
+  // First question: fetched on mount (the page remounts this component for each new ?q=), unless
+  // the Research Assistant handed over the answer it already has; then continue its conversation.
   useEffect(() => {
+    const handed = readHandoff(question);
+    if (handed) {
+      conversationId.current = handed.conversation_id;
+      // Applied like a fetched answer (async) so this server-rendered page hydrates in its loading state first.
+      Promise.resolve().then(() => update(0, { response: handed, phase: "done" }));
+      return;
+    }
     const controller = new AbortController();
     fetchTurn(0, question, controller.signal);
     return () => controller.abort();
@@ -76,12 +85,6 @@ export function ResultsExperience({ question }: { question: string }) {
       <Link href="/#ask" className="w-fit text-sm text-ink-muted transition-colors hover:text-ink">
         ← New search
       </Link>
-
-      {API_MODE === "mock" && (
-        <p className="rounded-2xl border border-sun/30 bg-sun/10 px-4 py-3 text-sm text-sun">
-          Demo mode: the backend isn&apos;t connected, so these are sample answers, not answers to your exact question.
-        </p>
-      )}
 
       <motion.h1
         initial={{ opacity: 0, y: 10 }}
@@ -181,7 +184,10 @@ function TurnBody({
 /** Starter follow-ups based on what the first answer covered. */
 function suggestionsFor(answer: AnsweredResponse | null): string[] {
   if (!answer) return ["PM2.5 in Chicago last week", "Was last month hotter than usual in Phoenix?"];
-  if (isEventsAnswer(answer)) {
+  if (isWebAnswer(answer)) {
+    return ["What causes it?", "How has it changed since 2000?", "What about the PM2.5 in my city?"];
+  }
+  if (hasEventsPlan(answer)) {
     const type = eventTypeLabel(answer.plan.event_types[0] ?? "event").toLowerCase();
     return [
       "How does that compare to last year?",
@@ -190,6 +196,9 @@ function suggestionsFor(answer: AnsweredResponse | null): string[] {
     ];
   }
   const place = answer.plan.locations.map((l) => answer.plan.places[l]?.label).find((l) => l && !/global/i.test(l));
+  if (isForecastAnswer(answer)) {
+    return ["How does that compare to a normal year?", "What about the next month?", place ? "What about a nearby city?" : "What about New York?"];
+  }
   const out: string[] = [];
   if (answer.plan.operation !== "compare_history") out.push("How does that compare to past years?");
   out.push("What about the last 30 days?");

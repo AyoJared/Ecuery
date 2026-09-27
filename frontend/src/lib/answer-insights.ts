@@ -1,7 +1,18 @@
 // Turns a backend answer into what the results page leads with: one headline number, a few
 // supporting stats, a context line, and reference lines for the chart. Pure functions, no React.
 
-import { isEventsAnswer, type AnsweredResponse, type EventsAnswer, type ReadingsAnswer } from "./api/types";
+import {
+  isEventsAnswer,
+  isForecastAnswer,
+  isLikelihoodAnswer,
+  isWebAnswer,
+  type AnsweredResponse,
+  type EventsAnswer,
+  type ForecastAnswer,
+  type LikelihoodAnswer,
+  type ReadingsAnswer,
+  type WebAnswer,
+} from "./api/types";
 import { eventTypeLabel } from "./event-types";
 import { formatDate, formatRange, metricLabel } from "./format";
 import { palette } from "./palette";
@@ -66,7 +77,60 @@ export const pm25Level = (v: number) => PM25_LEVELS.find((l) => v <= l.max)!;
 const POLLUTANTS = new Set(["pm25", "o3", "no2", "co2"]);
 
 export function insightFor(answer: AnsweredResponse): Insight {
-  return isEventsAnswer(answer) ? eventsInsight(answer) : readingsInsight(answer);
+  if (isEventsAnswer(answer)) return eventsInsight(answer);
+  if (isForecastAnswer(answer)) return forecastInsight(answer);
+  if (isLikelihoodAnswer(answer)) return likelihoodInsight(answer);
+  if (isWebAnswer(answer)) return webInsight(answer);
+  return readingsInsight(answer);
+}
+
+function forecastInsight(answer: ForecastAnswer): Insight {
+  const { plan, data } = answer;
+  const first = data.find((d) => d.summary);
+  const place = first ? (plan.places[first.location]?.label ?? first.location) : "";
+  const stats: Stat[] = [];
+  if (first?.summary) {
+    const { min, max, range_lo, range_hi } = first.summary;
+    stats.push({ label: "Lowest", value: `${num(min)} ${first.unit}` }, { label: "Highest", value: `${num(max)} ${first.unit}` });
+    if (range_lo != null && range_hi != null)
+      stats.push({ label: "Likely range", value: `${num(range_lo)}–${num(range_hi)} ${first.unit}` });
+  }
+  return {
+    context: [plan.metrics.map(metricLabel).join(", "), place, formatRange(plan.start, plan.end)],
+    headline: first?.summary
+      ? { value: num(first.summary.avg), unit: first.unit, label: `Forecast average · ${metricLabel(first.metric)} · ${place}` }
+      : { value: "", label: "" },
+    stats,
+    references: [],
+  };
+}
+
+function likelihoodInsight(answer: LikelihoodAnswer): Insight {
+  const { plan, likelihood } = answer;
+  const types = plan.event_types.map(eventTypeLabel);
+  const where = plan.within ?? plan.place?.label ?? "Worldwide";
+  return {
+    context: [types.join(", "), where, formatRange(plan.start, plan.end)],
+    headline: { value: likelihood.probability_text, label: `Chance of at least one · ${where}` },
+    stats: [
+      { label: "Expected count", value: num(likelihood.expected_count, 2) },
+      { label: "Past windows with events", value: `${likelihood.windows_with_events} of ${likelihood.windows_total}` },
+    ],
+    references: [],
+  };
+}
+
+function webInsight(answer: WebAnswer): Insight {
+  const n = answer.web.sources.length;
+  return {
+    context: [answer.plan.topic, "Cited web sources"],
+    headline: { value: "", label: "" },
+    stats: [
+      { label: "Sources", value: String(n) },
+      { label: "Quotes checked", value: String(answer.web.quotes.length) },
+    ],
+    references: [],
+  };
 }
 
 function readingsInsight(answer: ReadingsAnswer): Insight {

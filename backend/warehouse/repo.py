@@ -191,6 +191,34 @@ class SnowflakeRepo:
         }
 
 
+# Days that matter per metric: (column compared, threshold, description). Standard reference levels:
+# EPA/WHO daily PM2.5, the 8-hour ozone standard, the ETCCDI "very heavy precipitation" index (R20mm),
+# a common heat threshold for daily maximum temperature, and a CAMS dust-episode level.
+THRESHOLDS = {
+    "pm25": ("AVG_VALUE", 35.0, "days with average PM2.5 above 35 µg/m³"),
+    "o3": ("MAX_VALUE", 70.0, "days with ozone above 70 ppb"),
+    "dust": ("AVG_VALUE", 25.0, "days with average dust above 25 µg/m³ (a dust episode)"),
+    "precipitation": ("AVG_VALUE", 20.0, "days with 20 mm of rain or more"),
+    "temperature": ("MAX_VALUE", 35.0, "days reaching 35 °C"),
+}
+
+
+def yearly_stats(repo, metric: str, location: str, start, end) -> list[dict]:
+    """Per year: mean, most extreme day, number of days/records and days past the metric's threshold."""
+    column, threshold, _ = THRESHOLDS.get(metric, ("AVG_VALUE", None, None))
+    above = f"COUNT_IF({column} >= {float(threshold)})" if threshold is not None else "NULL"
+    first, last = day_range(start, end)
+    rows = repo._safe_query(
+        f"""SELECT YEAR(DAY) AS Y, AVG(AVG_VALUE) AS MEAN, MAX(MAX_VALUE) AS HIGHEST, MIN(MIN_VALUE) AS LOWEST,
+                   COUNT(*) AS RECORDS, {above} AS ABOVE, MIN(DAY) AS FIRST_DAY, MAX(DAY) AS LAST_DAY
+            FROM DAILY_READINGS WHERE METRIC = %s AND LOCATION = %s AND DAY >= %s AND DAY < %s
+            GROUP BY 1 ORDER BY 1""", (metric, location, first, last))
+    return [{"year": int(r["y"]), "mean": round(float(r["mean"]), 2), "highest": round(float(r["highest"]), 2),
+             "lowest": round(float(r["lowest"]), 2), "records": int(r["records"]),
+             "complete": r["first_day"].month == 1 and r["first_day"].day <= 31 and r["last_day"].month == 12,
+             **({"days_above_threshold": int(r["above"])} if r["above"] is not None else {})} for r in rows]
+
+
 class MockWarehouseRepo:
     mode = "mock"
 

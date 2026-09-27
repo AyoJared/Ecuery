@@ -58,8 +58,8 @@ export const heroClips: HeroClip[] = [
   {
     id: "ice",
     kind: "ice",
-    label: "Glaciers",
-    question: "How much ice have the world's glaciers lost since 2000?",
+    label: "Sea ice",
+    question: "How fast is Arctic sea ice shrinking?",
     video: { src: "/videos/icecap.mp4", mobileSrc: "/videos/icecap-mobile.mp4" },
     poster: "/videos/icecap.webp",
     focus: "60% 50%",

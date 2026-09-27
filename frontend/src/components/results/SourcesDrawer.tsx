@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { isEventsAnswer, type AnsweredResponse } from "@/lib/api/types";
+import { hasEventsPlan, isWebAnswer, type AnsweredResponse } from "@/lib/api/types";
 import { eventTypeLabel } from "@/lib/event-types";
 import { formatDate, formatRange, metricLabel, operationLabel, sourceName } from "@/lib/format";
 
@@ -134,8 +134,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /** How the backend understood the question: the plan it actually ran. */
 function Understood({ answer }: { answer: AnsweredResponse }) {
-  const chips: [string, string][] = isEventsAnswer(answer)
+  const chips: [string, string][] = isWebAnswer(answer)
     ? [
+        ["Topic", answer.plan.topic],
+        ["Source", "Cited web pages"],
+      ]
+    : hasEventsPlan(answer)
+      ? [
         ...answer.plan.event_types.map((t): [string, string] => ["Event", eventTypeLabel(t)]),
         ["Place", answer.plan.place?.label ?? "Worldwide"],
         ...(answer.plan.within
