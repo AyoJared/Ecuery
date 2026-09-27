@@ -19,6 +19,9 @@ def batch_info(batch_ids: list[str]) -> list[dict]:
             "fetched_at": r["fetched_at"].isoformat(), "row_count": r["row_count"],
             "manifest_sha256": r["manifest_sha256"], "signature": r["solana_signature"],
             "explorer_url": _explorer(r), "anchored": bool(r["solana_signature"]),
+            # First exact request to the agency, so people can open the raw data (credentials are
+            # stripped before it's shown: shared/source_links.py).
+            "request_url": next((q["url"] for q in (r.get("manifest") or {}).get("requests", []) if q.get("url")), None),
         })
     return sorted(out, key=lambda b: (b["source"], b["fetched_at"]))
 

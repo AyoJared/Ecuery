@@ -7,6 +7,8 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from .factcheck import grounded
+
 
 ABSOLUTE_METRICS = {"temperature", "water_temperature", "humidity"}
 
@@ -19,7 +21,10 @@ class ChartChoice(BaseModel):
 
 class Analysis(BaseModel):
     answer_text: str = Field(description="2-4 plain sentences answering the question. Shown in the UI and read "
-                                         "aloud, so no markdown, bullet points or emoji. Write numbers as digits, not words. Include the key numbers with units.")
+                                         "aloud, so no markdown, bullet points or emoji. Write numbers as digits, "
+                                         "not words, with thousands separators for large values (14,903,462 ha) "
+                                         "and no trailing '.0'. Plain text only: no HTML entities. Include the key "
+                                         "numbers with units.")
     trends: list[str] = Field(default_factory=list, description="1-3 short observations about changes over time")
     comparison: str | None = Field(None, description="One sentence comparing recent vs historical or between "
                                                      "locations, if the data supports it")
@@ -31,6 +36,10 @@ data provided (series summaries, sampled points and historical baselines). Never
 empty or doesn't cover the question, say so plainly. Round to one decimal place. Mention dates in a natural way
 ("June 7, 2023", "over the last three days"). For PM2.5, values above 35 µg/m³ are unhealthy for sensitive groups
 and above 55 are unhealthy for everyone; say so when relevant.
+When a series has "long_term", the question spans years: answer with the change between the first and last full
+years and the trend per decade, and name the highest/lowest years. For extremes ("extreme rainfall", "hottest day")
+use the most-extreme-day figures and their trend; for "how often" / "how many days" use days_above_threshold
+(described by long_term.threshold) and its trend. Say "per decade" for trends.
 When "comparisons_to_history" is present, the question is about what is normal: always state the recent
 average, the historical baseline and the change: a percent for pollutants and river flow, but for
 temperature and humidity the absolute difference (e.g. "2.1 °C warmer than usual"), never a percent.
@@ -47,6 +56,22 @@ def _sample(points: list[dict], limit: int = 48) -> list[dict]:
     return [{"time": p["time"], "avg": p["avg"], "max": p["max"]} for p in picked]
 
 
+def _totals(s: dict) -> dict:
+    """Rainfall is stored per day; give the exact total over the period so answers can state (and we can check) it."""
+    if s["metric"] != "precipitation" or not s["points"]:
+        return {}
+    if s["granularity"] in ("daily", "raw"):
+        return {"total_mm": round(sum(p["avg"] for p in s["points"]), 1), "days_with_data": len(s["points"])}
+    # Monthly/yearly points are average mm/day: weight each by the days it covers.
+    from datetime import date
+    total = 0.0
+    for p in s["points"]:
+        d = date.fromisoformat(p["time"][:10])
+        days = 365 if s["granularity"] == "yearly" else (date(d.year + d.month // 12, d.month % 12 + 1, 1) - d).days
+        total += p["avg"] * days
+    return {"total_mm_estimate": round(total, 0)}
+
+
 def analyze(client: genai.Client, model: str, question: str, plan: dict, series: list[dict],
             baselines: list[dict]) -> Analysis:
     payload = {
@@ -54,7 +79,8 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
         "plan": plan,
         "series": [
             {k: s[k] for k in ("metric", "location", "unit", "route", "granularity", "start", "end", "summary")}
-            | {"points": _sample(s["points"])}
+            | {"points": _sample(s["points"])} | _totals(s)
+            | {k: s[k] for k in ("yearly", "long_term") if s.get(k)}
             for s in series
         ],
         "historical_baselines": baselines,
@@ -72,19 +98,29 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
                                 "baseline_years": [y["year"] for y in b["by_year"]]})
     if comparisons:
         payload["comparisons_to_history"] = comparisons
-    response = client.models.generate_content(
-        model=model,
-        contents=json.dumps(payload, ensure_ascii=False),
-        config=types.GenerateContentConfig(
-            system_instruction=INSTRUCTIONS,
-            response_mime_type="application/json",
-            response_schema=Analysis,
-            temperature=0.2,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-        ),
-    )
-    result = response.parsed or Analysis.model_validate_json(response.text)
 
+    def generate(feedback: str | None) -> Analysis:
+        contents = json.dumps(payload, ensure_ascii=False) + ("\n\n" + feedback if feedback else "")
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=INSTRUCTIONS,
+                response_mime_type="application/json",
+                response_schema=Analysis,
+                temperature=0.2,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        result = response.parsed or Analysis.model_validate_json(response.text)
+        _ensure_baseline(result, comparisons)
+        return result
+
+    # Every figure in the answer must trace to `payload` (the evidence); see ask/factcheck.py.
+    return grounded(generate, payload, question)
+
+
+def _ensure_baseline(result: Analysis, comparisons: list[dict]) -> None:
     # Safety net: a "vs usual" answer must state the baseline. The model occasionally skips it,
     # so add the sentence from the real numbers rather than show an answer that dodges the question.
     for c in comparisons:
@@ -103,4 +139,3 @@ def analyze(client: genai.Client, model: str, question: str, plan: dict, series:
                 word = "higher" if c["change_pct"] > 0 else "lower"
                 result.answer_text += (f" That is {change}% {word} than the {years} average "
                                        f"of {b:.1f} {c['unit']} for the same dates.")
-    return result

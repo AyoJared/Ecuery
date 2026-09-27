@@ -142,6 +142,7 @@ function render(d) {
     ${chart(d.chart)}
     ${d.kind === "events" ? eventsBlock(d) : ""}
     <div class="meta">
+      ${d.grounding ? `<span class="${d.grounding.ok ? "badge" : "clarify"}" title="Every number, date and rating in the answer is checked against the data Gemini was given">${d.grounding.ok ? "✓" : "⚠"} ${esc(d.grounding.label)}</span>` : ""}
       ${v.badge.verified
         ? `<span class="badge">✓ ${esc(v.badge.label)} · <a href="${esc(v.explorer_url)}" target="_blank" rel="noopener">${esc(v.signature.slice(0, 10))}…</a></span>`
         : `<span class="clarify" title="${esc(v.error)}">✗ ${esc(v.badge.label)}</span>`}

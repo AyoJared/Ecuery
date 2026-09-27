@@ -48,6 +48,17 @@ def rows_sha256(rows: list[tuple]) -> str:
     return hashlib.sha256("\n".join(sorted(row_line(r) for r in rows)).encode()).hexdigest()
 
 
+def _backoff(resp: httpx.Response, attempt: int) -> float:
+    """Server errors: a short pause. Rate limits: honour Retry-After, else wait out a per-minute window
+    (Open-Meteo counts a multi-point, multi-year request as many calls)."""
+    if resp.status_code != 429:
+        return 2 * (attempt + 1)
+    try:
+        return min(90.0, float(resp.headers.get("Retry-After", "")))
+    except ValueError:
+        return 20.0 * (attempt + 1)
+
+
 @dataclass
 class Batch:
     source: str          # e.g. "epa-aqs"
@@ -59,13 +70,13 @@ class Batch:
     requests: list[dict] = field(default_factory=list)
     rows: list[tuple] = field(default_factory=list)
 
-    def fetch(self, url: str, params: dict | None = None, retries: int = 3) -> bytes:
+    def fetch(self, url: str, params: dict | None = None, retries: int = 4) -> bytes:
         """GET from the agency and fingerprint the exact bytes received."""
         for attempt in range(retries):
             try:
                 resp = _http.get(url, params=params)
                 if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries - 1:
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(_backoff(resp, attempt))
                     continue
                 resp.raise_for_status()
                 break

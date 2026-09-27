@@ -1,4 +1,4 @@
-import { AuthButtons } from "@/components/auth/AuthButtons";
+import { AssistantButton } from "@/components/assistant/AssistantButton";
 import { Logo } from "./Logo";
 import { SectionNavLinks, SectionNavMenu } from "./SectionNav";
 
@@ -9,7 +9,7 @@ export function Header() {
         <Logo />
         <SectionNavLinks />
         <div className="flex items-center gap-2">
-          <AuthButtons />
+          <AssistantButton />
           <SectionNavMenu />
         </div>
       </div>
