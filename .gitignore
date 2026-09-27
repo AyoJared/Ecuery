@@ -19,3 +19,6 @@ node_modules/
 # Solana wallet (backend signer)
 solana_keypair.json
 *-keypair.json
+
+
+.DS_Store
