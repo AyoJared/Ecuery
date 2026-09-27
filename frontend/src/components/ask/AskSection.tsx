@@ -1,15 +1,17 @@
 "use client";
 
-import { motion, useInView, useScroll, useTransform } from "motion/react";
+import { motion, useInView, useScroll } from "motion/react";
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { EventCard } from "@/components/globe/EventCard";
+import { GlobeErrorBoundary } from "@/components/globe/GlobeErrorBoundary";
 import { HazardIcon } from "@/components/globe/HazardIcon";
 import { SectionHeading } from "@/components/landing/SectionHeading";
 import { Reveal } from "@/components/motion/Reveal";
 import { useSearch } from "@/components/search/SearchContext";
 import { SearchPanel } from "@/components/search/SearchPanel";
 import { envEvents, eventTypes, type EventType } from "@/lib/events";
+import { useClampedTransform } from "@/lib/use-clamped-transform";
 
 const EarthGlobe = dynamic(() => import("@/components/globe/EarthGlobe").then((m) => m.EarthGlobe), {
   ssr: false,
@@ -28,19 +30,21 @@ export function AskSection() {
   const globeBoxRef = useRef<HTMLDivElement>(null);
   const size = useElementWidth(globeBoxRef);
   const onScreen = useInView(sectionRef, { margin: "200px" });
+  // Build the globe (WebGL shaders + hex-dot continents) only once the user scrolls toward it,
+  // so its one-off setup cost doesn't stutter the hero. The section peeks in at load, hence the
+  // negative bottom margin: it must reach the upper 75% of the viewport first.
+  const nearby = useInView(sectionRef, { once: true, margin: "0px 0px -25% 0px" });
 
   // Globe grows into place as the section scrolls into view.
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ["start end", "start start"] });
-  const globeScale = useTransform(scrollYProgress, [0, 1], [0.85, 1]);
-  const globeOpacity = useTransform(scrollYProgress, [0, 0.5], [0, 1]);
+  const globeScale = useClampedTransform(scrollYProgress, [0, 1], [0.85, 1]);
+  const globeOpacity = useClampedTransform(scrollYProgress, [0, 0.5], [0, 1]);
 
   const visibleEvents = envEvents.filter((e) => activeTypes.includes(e.type));
   const selected = visibleEvents.find((e) => e.id === selectedId) ?? null;
 
   function toggleType(type: EventType) {
-    const next = activeTypes.includes(type)
-      ? activeTypes.filter((t) => t !== type)
-      : [...activeTypes, type];
+    const next = activeTypes.includes(type) ? activeTypes.filter((t) => t !== type) : [...activeTypes, type];
     if (next.length === 0) return;
     setActiveTypes(next);
     if (selected && !next.includes(selected.type)) setSelectedId(null);
@@ -68,21 +72,30 @@ export function AskSection() {
         </div>
 
         <div className="flex flex-col gap-5">
-          <motion.div
-            ref={globeBoxRef}
-            style={{ scale: globeScale, opacity: globeOpacity }}
-            className="relative mx-auto aspect-square w-full max-w-[560px] cursor-grab active:cursor-grabbing"
-          >
-            {size > 0 && (
-              <EarthGlobe
-                events={visibleEvents}
-                selectedId={selected?.id ?? null}
-                onSelect={setSelectedId}
-                size={size}
-                paused={!onScreen}
-              />
-            )}
-          </motion.div>
+          {/* Ambient ocean/leaf glow behind the globe; the section's isolate keeps -z-10 local */}
+          <div className="relative">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 aspect-square w-[120%] max-w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(124_196_245/0.26),rgb(143_214_165/0.12)_55%,transparent)] blur-2xl animate-[breathe_7s_ease-in-out_infinite_alternate] motion-reduce:animate-none"
+            />
+            <motion.div
+              ref={globeBoxRef}
+              style={{ scale: globeScale, opacity: globeOpacity }}
+              className="relative mx-auto aspect-square w-full max-w-[560px] cursor-grab active:cursor-grabbing"
+            >
+              <GlobeErrorBoundary>
+                {size > 0 && nearby && (
+                  <EarthGlobe
+                    events={visibleEvents}
+                    selectedId={selected?.id ?? null}
+                    onSelect={setSelectedId}
+                    size={size}
+                    paused={!onScreen}
+                  />
+                )}
+              </GlobeErrorBoundary>
+            </motion.div>
+          </div>
 
           <div className="flex flex-wrap justify-center gap-2">
             {allTypes.map((type) => {

@@ -6,7 +6,7 @@ import type { ShowcaseExample } from "@/lib/showcase";
 import { ShowcaseChart } from "./ShowcaseChart";
 
 // Plays once when scrolled into view: type the question → "querying" state → answer + chart.
-export function AnswerCard({ example }: { example: ShowcaseExample }) {
+export function AnswerCard({ example, className = "" }: { example: ShowcaseExample; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: "-20% 0px" });
   const reduceMotion = useReducedMotion() ?? false;
@@ -22,7 +22,7 @@ export function AnswerCard({ example }: { example: ShowcaseExample }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-      className="overflow-hidden rounded-3xl border border-line bg-surface/70 backdrop-blur"
+      className={`flex flex-col overflow-hidden rounded-3xl border border-line bg-surface/70 backdrop-blur ${className}`}
     >
       <div className="flex items-center gap-3 border-b border-line px-5 py-4 sm:px-7 sm:py-5">
         <svg className="size-4 shrink-0 text-ink-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
@@ -43,7 +43,7 @@ export function AnswerCard({ example }: { example: ShowcaseExample }) {
       </div>
 
       {/* Skeleton and result share one grid cell per column, so nothing jumps when the answer lands. */}
-      <div className="grid gap-6 p-5 sm:p-7 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-10">
+      <div className="grid flex-1 gap-6 p-5 sm:p-7 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-10">
         <div className="grid">
           <div
             className={`flex flex-col gap-3 pt-1.5 transition-opacity duration-300 [grid-area:1/1] ${loading ? "opacity-100" : "opacity-0"}`}
@@ -67,7 +67,7 @@ export function AnswerCard({ example }: { example: ShowcaseExample }) {
           </motion.div>
         </div>
 
-        <div className="relative h-56 sm:h-64">
+        <div className="relative h-56 sm:h-64 lg:h-auto lg:min-h-64">
           <div
             className={`absolute inset-0 flex items-end gap-2 px-2 pb-6 transition-opacity duration-300 ${loading ? "opacity-100" : "opacity-0"}`}
             aria-hidden

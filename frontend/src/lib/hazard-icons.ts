@@ -1,13 +1,14 @@
 import { eventTypes, type EventType } from "./events";
 
-export type HazardKind = EventType | "flood" | "ice";
+export type HazardKind = EventType | "ice";
 
 export const hazardColors: Record<HazardKind, string> = {
   cyclone: eventTypes.cyclone.color,
   tornado: eventTypes.tornado.color,
   wildfire: eventTypes.wildfire.color,
   air: eventTypes.air.color,
-  flood: "#2dd4bf",
+  flood: eventTypes.flood.color,
+  earthquake: eventTypes.earthquake.color,
   ice: "#e0f2fe",
 };
 
@@ -39,6 +40,8 @@ export const hazardIconMarkup: Record<HazardKind, string> = {
     <path class="hz-bob" d="M12 2.5s-4 4.4-4 7.3a4 4 0 0 0 8 0c0-2.9-4-7.3-4-7.3z"/>
     <path class="hz-drift" style="--i:0" d="M2 17c1.7-1.3 3.3-1.3 5 0s3.3 1.3 5 0 3.3-1.3 5 0 3.3 1.3 5 0"/>
     <path class="hz-drift" style="--i:1" d="M2 21c1.7-1.3 3.3-1.3 5 0s3.3 1.3 5 0 3.3-1.3 5 0 3.3 1.3 5 0"/>`,
+  // Seismograph trace that jitters
+  earthquake: `<path class="hz-quake" d="M2 12h3.5l2-4.5 3 10 3-13 3 11 2-3.5H22"/>`,
   // Slowly turning ice crystal
   ice: `<g class="hz-spin-slow">
     <path d="M12 2v20"/>

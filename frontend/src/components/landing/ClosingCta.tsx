@@ -25,10 +25,11 @@ export function ClosingCta() {
             Start asking
           </button>
         </Reveal>
-        <Reveal delay={0.15} className="w-full pt-6">
-          <SourcesStrip />
-        </Reveal>
       </div>
+      {/* Full width so the sources band has room to scroll */}
+      <Reveal delay={0.15} className="mx-auto mt-16 w-full max-w-6xl px-4 sm:px-6">
+        <SourcesStrip />
+      </Reveal>
     </section>
   );
 }

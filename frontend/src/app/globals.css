@@ -14,9 +14,11 @@
   --color-accent-soft: #b5e6c3;
   --color-sun: #f2c078;
   --color-sun-soft: #f7d7a3;
+  --color-wildfire: #fb923c;
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-instrument-serif);
 }
 
 :root {
@@ -35,6 +37,65 @@ html {
 ::selection {
   background: rgb(143 214 165 / 0.3);
   color: #fff;
+}
+
+/* Slowly drifting leaf → ocean → sun gradient for the hero headline */
+.text-flow {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-accent-soft) 0%,
+    var(--color-accent) 25%,
+    #7cc4f5 50%,
+    var(--color-sun) 75%,
+    var(--color-accent-soft) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: text-flow 9s ease-in-out infinite alternate;
+}
+@keyframes text-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-flow {
+    animation: none;
+  }
+}
+
+/* Data sources band: the list is doubled, so -50% is exactly one copy */
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Globe ambient glow */
+@keyframes breathe {
+  from {
+    opacity: 0.7;
+    scale: 0.94;
+  }
+  to {
+    opacity: 1;
+    scale: 1.04;
+  }
+}
+
+/* Voice waveform bars in the showcase grid */
+@keyframes wave {
+  from {
+    transform: scaleY(0.35);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
 
 /* ---------- Hazard icons (shared by globe markers, legend, event card) ---------- */
@@ -126,6 +187,28 @@ html {
   }
   to {
     transform: translateY(1.4px);
+  }
+}
+
+.hz-quake {
+  animation: hz-quake 0.9s steps(6) infinite;
+}
+@keyframes hz-quake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-0.8px, 0.3px);
+  }
+  40% {
+    transform: translate(0.9px, -0.3px);
+  }
+  60% {
+    transform: translate(-0.6px, -0.2px);
+  }
+  80% {
+    transform: translate(0.5px, 0.3px);
   }
 }
 

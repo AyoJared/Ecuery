@@ -1,13 +1,15 @@
 import Link from "next/link";
 
-// Placeholder mark until there's a real logo.
+// Wordmark: heavy, wide-tracked caps. The letters shade from white into the brand's leaf → sun
+// gradient (echoing the hero headline), and the gradient drifts a little on hover.
 export function Logo() {
   return (
-    <Link href="/" className="group flex items-center gap-2.5" aria-label="Ecuery home">
-      <span className="relative grid size-7 place-items-center rounded-lg border border-line-strong bg-surface-raised">
-        <span className="size-2.5 rounded-full bg-accent shadow-[0_0_12px_2px_rgb(143_214_165/0.55)] transition-shadow group-hover:shadow-[0_0_16px_4px_rgb(143_214_165/0.7)]" />
+    <Link href="/" aria-label="Ecuery home" className="group shrink-0">
+      <span
+        className="mr-[-0.2em] bg-[linear-gradient(100deg,var(--color-ink)_0%,var(--color-ink)_42%,var(--color-accent-soft)_72%,var(--color-sun)_100%)] bg-[length:140%_100%] bg-left bg-clip-text text-[19px] font-extrabold uppercase tracking-[0.2em] text-transparent transition-[background-position] duration-700 ease-out group-hover:bg-right"
+      >
+        Ecuery
       </span>
-      <span className="text-[15px] font-semibold tracking-tight text-ink">Ecuery</span>
     </Link>
   );
 }

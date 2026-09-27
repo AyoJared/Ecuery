@@ -21,7 +21,8 @@ function dropDegeneratePolygons<F extends { geometry: GeoJSON.Geometry }>(f: F):
   return { ...f, geometry: { ...f.geometry, coordinates: f.geometry.coordinates.filter(isReal) } };
 }
 
-const HOME_VIEW = { lat: 22, lng: -55, altitude: 1.95 };
+// Atlantic-centred: Americas, Europe and Africa all in view at load.
+const HOME_VIEW = { lat: 28, lng: -25, altitude: 1.95 };
 
 type EarthGlobeProps = {
   events: EnvEvent[];

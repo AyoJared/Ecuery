@@ -19,6 +19,8 @@ export type HeroClip = {
   question: string;
   video?: { src: string; mobileSrc?: string };
   poster?: string;
+  /** CSS object-position for the crop, e.g. "60% 50%". Matters most on phones (portrait crop). */
+  focus?: string;
   durationMs?: number;
   credit?: string;
 };
@@ -31,31 +33,45 @@ export const heroClips: HeroClip[] = [
     kind: "cyclone",
     label: "Hurricanes",
     question: "Which hurricanes intensified fastest in the last decade?",
-    // video: { src: "/videos/hurricane.mp4" },
-    // poster: "/videos/hurricane.webp",
+    video: { src: "/videos/hurricane.mp4", mobileSrc: "/videos/hurricane-mobile.mp4" },
+    poster: "/videos/hurricane.webp",
+    focus: "45% 50%",
   },
   {
     id: "wildfire",
     kind: "wildfire",
     label: "Wildfires",
     question: "Compare 2023 vs 2024 wildfire acreage in Canada",
+    video: { src: "/videos/wildfire.mp4", mobileSrc: "/videos/wildfire-mobile.mp4" },
+    poster: "/videos/wildfire.webp",
+    focus: "72% 50%",
   },
   {
     id: "tornado",
     kind: "tornado",
     label: "Tornadoes",
     question: "How many EF4+ tornadoes hit the US each year since 2000?",
+    video: { src: "/videos/tornado.mp4", mobileSrc: "/videos/tornado-mobile.mp4" },
+    poster: "/videos/tornado.webp",
+    focus: "58% 50%",
+  },
+  {
+    id: "ice",
+    kind: "ice",
+    label: "Glaciers",
+    question: "How much ice have the world's glaciers lost since 2000?",
+    video: { src: "/videos/icecap.mp4", mobileSrc: "/videos/icecap-mobile.mp4" },
+    poster: "/videos/icecap.webp",
+    focus: "60% 50%",
   },
   {
     id: "flood",
     kind: "flood",
     label: "Floods",
-    question: "How has extreme rainfall in the US changed since 1950?",
-  },
-  {
-    id: "ice",
-    kind: "ice",
-    label: "Polar ice",
-    question: "How much has Arctic sea ice declined since 2000?",
+    detail: "Bangladesh",
+    question: "How has monsoon flooding in Bangladesh changed since 2000?",
+    video: { src: "/videos/flood.mp4", mobileSrc: "/videos/flood-mobile.mp4" },
+    poster: "/videos/flood.webp",
+    focus: "50% 50%",
   },
 ];

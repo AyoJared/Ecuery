@@ -18,11 +18,13 @@ type ClipLayerProps = {
   isMobile: boolean;
   staticOnly: boolean;
   priority: boolean;
+  /** Hands the mounted <video> to the hero, which times the clip off its playback. */
+  registerVideo?: (el: HTMLVideoElement | null) => void;
 };
 
 // One full-bleed background layer. Layers are stacked; the active one fades in
 // and slowly zooms (Ken Burns) for the length of the clip.
-export function ClipLayer({ clip, durationMs, active, load, playing, isMobile, staticOnly, priority }: ClipLayerProps) {
+export function ClipLayer({ clip, durationMs, active, load, playing, isMobile, staticOnly, priority, registerVideo }: ClipLayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const src = isMobile && clip.video?.mobileSrc ? clip.video.mobileSrc : clip.video?.src;
   const showVideo = Boolean(src) && load && !staticOnly;
@@ -31,11 +33,16 @@ export function ClipLayer({ clip, durationMs, active, load, playing, isMobile, s
     const video = videoRef.current;
     if (!video) return;
     if (active && playing) {
+      // Re-selected before the delayed rewind ran: start over rather than sit on the end.
+      if (video.ended) video.currentTime = 0;
       video.play().catch(() => {});
-    } else {
-      video.pause();
-      if (!active) video.currentTime = 0;
+      return;
     }
+    video.pause();
+    if (active) return;
+    // Rewind only once the layer has faded out, so the fade shows the last frame.
+    const t = setTimeout(() => (video.currentTime = 0), FADE_MS);
+    return () => clearTimeout(t);
   }, [active, playing]);
 
   return (
@@ -54,14 +61,17 @@ export function ClipLayer({ clip, durationMs, active, load, playing, isMobile, s
       >
         {showVideo ? (
           <video
-            ref={videoRef}
+            ref={(el) => {
+              videoRef.current = el;
+              registerVideo?.(el);
+            }}
             src={src}
             poster={clip.poster}
             muted
-            loop
             playsInline
             preload="auto"
             className="size-full object-cover saturate-[0.85]"
+            style={{ objectPosition: clip.focus }}
           />
         ) : clip.poster ? (
           <Image
@@ -71,6 +81,7 @@ export function ClipLayer({ clip, durationMs, active, load, playing, isMobile, s
             sizes="100vw"
             priority={priority}
             className="object-cover saturate-[0.85]"
+            style={{ objectPosition: clip.focus }}
           />
         ) : (
           <Placeholder clip={clip} />

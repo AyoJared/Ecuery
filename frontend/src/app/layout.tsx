@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { clerkAppearance } from "@/lib/clerk-appearance";
 import { isClerkEnabled } from "@/lib/clerk-config";
@@ -15,8 +15,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Display serif, used sparingly for italic accents in headlines.
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
-  title: "Ecuery — Ask the planet anything",
+  title: "Ecuery — Curious about your planet? Just ask.",
   description:
     "Search environmental data in plain English. Sea levels, wildfires, air quality, temperature — answered with real data and charts.",
 };
@@ -25,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   const page = (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col font-sans">{children}</body>
     </html>
