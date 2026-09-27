@@ -13,19 +13,11 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from tiger.sample_data import LOCATIONS, METRICS
+from shared.catalog import CITIES, METRICS
 
-Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity"]
+Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity", "streamflow", "water_temperature"]
+assert set(Metric.__args__) == set(METRICS), "keep Metric in sync with shared/catalog.py"
 Operation = Literal["latest", "summary", "trend", "peak", "compare_history", "compare_locations"]
-
-METRIC_HINTS = {
-    "pm25": "fine particulate matter PM2.5, smoke, haze, soot, 'air quality' / AQI in general",
-    "o3": "ozone, smog",
-    "no2": "nitrogen dioxide, traffic / vehicle exhaust pollution",
-    "co2": "carbon dioxide, CO2 levels",
-    "temperature": "temperature, heat, cold, weather",
-    "humidity": "humidity, moisture",
-}
 
 
 class EnvironmentalQuery(BaseModel):
@@ -70,7 +62,7 @@ class EnvironmentalQuery(BaseModel):
 
 
 def _instructions(today: date) -> str:
-    metrics = "\n".join(f"- {code} ({METRICS[code][0]}): {hint}" for code, hint in METRIC_HINTS.items())
+    metrics = "\n".join(f"- {m.code} ({m.unit}): {m.hint}" for m in METRICS.values())
     return f"""You turn environmental questions into a structured query for a database of sensor readings.
 Today is {today.isoformat()} ({today.strftime('%A')}). Resolve relative dates ("last 3 days", "this week",
 "since 2019", "June 2023") into ISO start_date / end_date. "Since X" ends today. "This week" is the last 7 days.
@@ -79,17 +71,34 @@ If no time is mentioned, leave both dates empty.
 Allowed metric codes:
 {metrics}
 
-Locations with data: {', '.join(sorted(LOCATIONS))}. Write any location in lowercase snake_case even if it is
+Locations with data: {', '.join(sorted(CITIES))}. Write any location in lowercase snake_case even if it is
 not in that list. Map "NYC"/"New York City" to new_york and "Philly" to philadelphia.
-Only set clarification_question when the metric or location truly can't be inferred."""
+CO2 concentration is only measured globally (NOAA Mauna Loa): for CO2-only questions no city is needed.
+Only set clarification_question when the metric or location truly can't be inferred.
+
+Follow-ups: if earlier turns of the conversation are given, the new question may depend on them
+("what about Philadelphia?", "and last month?", "is that normal?", or just "Philadelphia" answering
+a clarification). Carry over the metric, location and time range from the most recent turn unless
+the new question replaces them, and set operation from the new question."""
+
+
+def _with_history(question: str, history: list[dict] | None) -> str:
+    if not history:
+        return question
+    lines = ["Earlier in this conversation (oldest first):"]
+    for i, turn in enumerate(history, 1):
+        understood = ", ".join(f"{k}={v}" for k, v in (turn.get("understood") or {}).items())
+        lines.append(f"{i}. User: {turn['question']}\n   Understood: {understood or 'nothing'}"
+                     f"\n   Reply: {turn.get('reply', '')[:200]}")
+    return "\n".join(lines) + f"\n\nNew question: {question}"
 
 
 def parse_query(client: genai.Client, question: str, today: date | None = None,
-                model: str = "gemini-3.5-flash-lite") -> EnvironmentalQuery:
+                model: str = "gemini-3.5-flash-lite", history: list[dict] | None = None) -> EnvironmentalQuery:
     today = today or datetime.now(timezone.utc).date()
     response = client.models.generate_content(
         model=model,
-        contents=question,
+        contents=_with_history(question, history),
         config=types.GenerateContentConfig(
             system_instruction=_instructions(today),
             response_mime_type="application/json",

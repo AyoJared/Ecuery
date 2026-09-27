@@ -108,11 +108,24 @@ class RpcSolanaClient:
         self.fee_payer = str(self.keypair.pubkey())
         self._http = httpx.Client(timeout=30)
 
-    def _rpc(self, method: str, params: list):
-        try:
-            body = self._http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).json()
-        except httpx.HTTPError as e:
-            raise SolanaUnavailable(f"Can't reach Solana {self.cluster}: {e}") from None
+    def _rpc(self, method: str, params: list, attempts: int = 3):
+        # The public devnet endpoint rate-limits bursts (HTTP 429) and hiccups; retry those briefly.
+        for attempt in range(attempts):
+            try:
+                resp = self._http.post(self.rpc_url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+                transient = resp.status_code == 429 or resp.status_code >= 500
+                body = None if transient else resp.json()
+                if body is not None and body.get("error", {}).get("code") == 429:
+                    transient = True
+            except (httpx.HTTPError, ValueError) as e:
+                transient, body, reason = True, None, str(e)
+            else:
+                reason = f"HTTP {resp.status_code}"
+            if not transient:
+                break
+            if attempt == attempts - 1:
+                raise SolanaUnavailable(f"Solana {self.cluster} unavailable for {method}: {reason}")
+            time.sleep(0.5 * 2 ** attempt)
         if "error" in body:
             message = body["error"].get("message", str(body["error"]))
             if "no record of a prior credit" in message or "insufficient" in message.lower():

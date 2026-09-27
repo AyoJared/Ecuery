@@ -111,6 +111,26 @@ def status(client: SolanaClient = Depends(get_client)):
     return info
 
 
+@router.get("/batches")
+def source_batches(limit: int = 50):
+    """Every agency data batch ingested, with its Solana anchor."""
+    from ingest import store  # lazy: keeps the verify package importable without Tiger configured
+    from ingest.verify import batch_info
+    rows = store.registry(limit=min(limit, 500))
+    return batch_info([r["batch_id"] for r in rows])
+
+
+@router.get("/batch/{batch_id}")
+def source_batch(batch_id: str, refetch: bool = False):
+    """Check one source batch: stored rows == ingested rows, manifest == anchored hash on Solana,
+    and (refetch=true) the agency still serves the same bytes."""
+    from ingest.verify import verify_batch
+    result = verify_batch(batch_id, refetch=refetch)
+    if not result["found"]:
+        raise HTTPException(404, f"No ingest batch {batch_id}")
+    return result
+
+
 def _lookup(client: SolanaClient, signature: str):
     try:
         return client.get_transaction(signature)

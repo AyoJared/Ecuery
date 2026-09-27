@@ -14,25 +14,29 @@ parameterized queries in readings.service, so every query is read-only and valid
 construction. Free-form SQL stays available to Gemini through the MCP server.
 """
 
+import json
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from google import genai
 
 from parser import EnvironmentalQuery, parse_query
-from readings.service import get_readings
+from readings.service import get_readings, recent_cutoff
+from shared.catalog import CITIES, GLOBAL, METRICS, label as metric_label, unit as metric_unit
 from shared.series import DataUnavailable
 from tiger.repo import get_repo as get_tiger
-from tiger.sample_data import LOCATIONS, METRICS
 from verify.hashing import build_record, memo_for, sha256_hex
 from verify.solana_client import SolanaUnavailable, get_client as get_solana
 from warehouse.repo import get_repo as get_warehouse
 from warehouse.sample_data import HISTORY_START
 
 from .analyze import analyze
+from .cache import TTL_HISTORICAL, TTL_RECENT, TTL_UNDERSTAND, cache_key, get_cache, normalize
+from .memory import get_store, new_conversation_id
+from .transcribe import transcribe
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 MAX_SERIES = 4
@@ -53,14 +57,22 @@ def get_gemini() -> genai.Client:
 
 @dataclass
 class Plan:
-    metrics: list[str]
-    locations: list[str]
+    pairs: list[tuple[str, str]]  # (metric, location) series to fetch
     start: datetime
     end: datetime
     operation: str
 
+    @property
+    def metrics(self) -> list[str]:
+        return list(dict.fromkeys(m for m, _ in self.pairs))
+
+    @property
+    def locations(self) -> list[str]:
+        return list(dict.fromkeys(l for _, l in self.pairs))
+
     def to_dict(self) -> dict:
-        return asdict(self) | {"start": self.start.isoformat(), "end": self.end.isoformat()}
+        return {"metrics": self.metrics, "locations": self.locations, "start": self.start.isoformat(),
+                "end": self.end.isoformat(), "operation": self.operation}
 
 
 class NeedsClarification(Exception):
@@ -68,19 +80,22 @@ class NeedsClarification(Exception):
 
 
 def _nice(location: str) -> str:
-    return location.replace("_", " ").title()
+    return CITIES[location].name if location in CITIES else location.replace("_", " ").title()
 
 
 def make_plan(q: EnvironmentalQuery, now: datetime) -> Plan:
     """The diagram's "Read-only & valid?" gate: everything must map onto data we actually have."""
     if not q.metrics:
         raise NeedsClarification(q.clarification_question or
-                                 f"Which measurement do you mean? I have {', '.join(METRICS)}.")
-    if not q.locations:
+                                 f"Which measurement do you mean? I have {', '.join(m.label for m in METRICS.values())}.")
+    city_metrics = [m for m in dict.fromkeys(q.metrics) if not METRICS[m].global_only]
+    global_metrics = [m for m in dict.fromkeys(q.metrics) if METRICS[m].global_only]
+    cities = [l for l in dict.fromkeys(q.locations) if l != GLOBAL]
+    if city_metrics and not cities:
         raise NeedsClarification(q.clarification_question or "Which city are you asking about?")
-    unknown = [l for l in q.locations if l not in LOCATIONS]
+    unknown = [l for l in cities if l not in CITIES]
     if unknown:
-        have = ", ".join(_nice(l) for l in sorted(LOCATIONS))
+        have = ", ".join(c.name for c in CITIES.values())
         raise NeedsClarification(f"I don't have data for {', '.join(_nice(l) for l in unknown)} yet. "
                                  f"Try one of: {have}.")
 
@@ -97,13 +112,35 @@ def make_plan(q: EnvironmentalQuery, now: datetime) -> Plan:
     if start_day:
         start = datetime.combine(max(start_day, HISTORY_START), datetime.min.time(), timezone.utc)
     else:
-        start = end - (timedelta(hours=24) if operation == "latest" else timedelta(days=7))
+        # "Latest" looks back a day, except global CO2: Mauna Loa's daily values arrive 2-3 days late.
+        latest_window = timedelta(days=7) if global_metrics else timedelta(hours=24)
+        start = end - (latest_window if operation == "latest" else timedelta(days=7))
     if start >= end:
         raise NeedsClarification("That time period looks empty or in the future. Which dates do you mean?")
 
-    pairs = [(m, l) for m in dict.fromkeys(q.metrics) for l in dict.fromkeys(q.locations)][:MAX_SERIES]
-    return Plan(sorted({m for m, _ in pairs}, key=q.metrics.index), sorted({l for _, l in pairs}, key=q.locations.index),
-                start, end, operation)
+    # CO2 is only measured globally (Mauna Loa), whatever city was asked about.
+    pairs = [(m, l) for m in city_metrics for l in cities] + [(m, GLOBAL) for m in global_metrics]
+    return Plan(pairs[:MAX_SERIES], start, end, operation)
+
+
+def data_notes(plan: Plan, sources: list[dict]) -> list[str]:
+    """Where each series comes from, so the answer can say so (e.g. that CO2 is global)."""
+    notes = []
+    for m, l in plan.pairs:
+        if l == GLOBAL:
+            notes.append(f"{metric_label(m)} is the global background level measured at Mauna Loa, Hawaii "
+                         f"(NOAA GML); it is not city-specific.")
+        elif m in ("temperature", "humidity"):
+            notes.append(f"{_nice(l)} weather is from the {CITIES[l].notes['weather']} station (NOAA).")
+        elif m in ("streamflow", "water_temperature"):
+            notes.append(f"{_nice(l)} {metric_label(m).lower()} is from the USGS gauge on the {CITIES[l].notes['usgs']}.")
+        elif l in CITIES and "air" in CITIES[l].notes:
+            notes.append(f"{_nice(l)} air quality averages {CITIES[l].notes['air']} (EPA).")
+    preliminary = sorted({s["source"] for s in sources if s["quality"] == "preliminary"})
+    if preliminary:
+        notes.append(f"Some values come from real-time feeds ({', '.join(preliminary)}) that are preliminary "
+                     f"and may still be revised by the agency.")
+    return list(dict.fromkeys(notes))
 
 
 def _shift_years(t: datetime, years: int) -> datetime:
@@ -113,29 +150,44 @@ def _shift_years(t: datetime, years: int) -> datetime:
         return t.replace(year=t.year - years, day=28)
 
 
-def fetch(plan: Plan) -> tuple[list[dict], list[dict]]:
-    series = [get_readings(m, l, plan.start, plan.end) for m in plan.metrics for l in plan.locations]
+def fetch(plan: Plan) -> tuple[list[dict], list[dict], list[str]]:
+    """Series for the plan, historical baselines if asked, and every source batch the numbers came from."""
+    batch_ids: set[str] = set()
+
+    def read(m: str, l: str, s: datetime, e: datetime) -> dict:
+        result = get_readings(m, l, s, e)
+        batch_ids.update(b["batch_id"] for b in result.get("batches", []))
+        return result
+
+    series = [read(m, l, plan.start, plan.end) for m, l in plan.pairs]
     baselines = []
     if plan.operation == "compare_history":
-        for m in plan.metrics:
-            for l in plan.locations:
-                by_year = []
-                for y in range(1, BASELINE_YEARS + 1):
-                    s, e = _shift_years(plan.start, y), _shift_years(plan.end, y)
-                    if e.date() <= HISTORY_START:
-                        break
-                    past = get_readings(m, l, max(s, datetime.combine(HISTORY_START, datetime.min.time(), timezone.utc)), e)
-                    if past["summary"]:
-                        by_year.append({"year": s.year, "avg": past["summary"]["avg"], "max": past["summary"]["max"]})
-                if by_year:
-                    baselines.append({"metric": m, "location": l, "unit": METRICS[m][0], "by_year": by_year,
-                                      "baseline_avg": round(sum(b["avg"] for b in by_year) / len(by_year), 2)})
-    return series, baselines
+        for m, l in plan.pairs:
+            by_year = []
+            for y in range(1, BASELINE_YEARS + 1):
+                s, e = _shift_years(plan.start, y), _shift_years(plan.end, y)
+                if e.date() <= HISTORY_START:
+                    break
+                past = read(m, l, max(s, datetime.combine(HISTORY_START, datetime.min.time(), timezone.utc)), e)
+                if past["summary"]:
+                    by_year.append({"year": s.year, "avg": past["summary"]["avg"], "max": past["summary"]["max"]})
+            if by_year:
+                baselines.append({"metric": m, "location": l, "unit": metric_unit(m), "by_year": by_year,
+                                  "baseline_avg": round(sum(b["avg"] for b in by_year) / len(by_year), 2)})
+    return series, baselines, sorted(batch_ids)
+
+
+def provenance(batch_ids: list[str]) -> tuple[list[dict], str | None]:
+    """Registry entries (agency, dataset, Solana anchor) for the batches behind an answer."""
+    try:
+        from ingest.verify import batch_info
+        return batch_info(batch_ids), None
+    except Exception as e:  # provenance lookup must never block an answer
+        return [], f"provenance lookup failed: {str(e)[:120]}"
 
 
 def build_chart(choice, series: list[dict], baselines: list[dict]) -> dict:
-    names = {"pm25": "PM2.5", "o3": "Ozone", "no2": "NO2", "co2": "CO2", "temperature": "Temperature", "humidity": "Humidity"}
-    label = lambda s: f"{names.get(s['metric'], s['metric'])} · {_nice(s['location'])}"
+    label = lambda s: f"{metric_label(s['metric'])} · {_nice(s['location'])}"
     chart = {"type": choice.type, "title": choice.title, "y_label": choice.y_label}
     if choice.type == "line" or not any(s["summary"] for s in series):
         chart |= {"type": "line", "x_label": "Time", "series": [
@@ -152,15 +204,22 @@ def build_chart(choice, series: list[dict], baselines: list[dict]) -> dict:
     return chart
 
 
-def anchor(question: str, analysis, series: list[dict]) -> dict:
-    """Step 8: SHA-256 of query + result + source + timestamp, written to Solana as a memo."""
+def anchor(question: str, analysis, series: list[dict], sources: list[dict]) -> dict:
+    """Step 8: SHA-256 of query + result + source + timestamp, written to Solana as a memo.
+
+    `source` commits to the exact agency batches (by their anchored manifest hashes), so the
+    answer's proof chains back to the source data's proof.
+    """
     stores = sorted({src for s in series for src in s.get("sources", {})})
     modes = {"tiger": get_tiger().mode, "snowflake": get_warehouse().mode}
     record = build_record(
         query=question,
         result={"answer": analysis.answer_text,
                 "series": [{k: s[k] for k in ("metric", "location", "route", "sources", "summary")} for s in series]},
-        source=", ".join(f"{s}:{modes[s]}" for s in stores) or "none",
+        source=json.dumps({"stores": {s: modes[s] for s in stores},
+                           "batches": [{"batch_id": b["batch_id"], "source": b["source"],
+                                        "manifest_sha256": b["manifest_sha256"]} for b in sources]},
+                          sort_keys=True, separators=(",", ":")),
     )
     digest = sha256_hex(record)
     solana = get_solana()
@@ -176,7 +235,21 @@ def anchor(question: str, analysis, series: list[dict]) -> dict:
             "badge": {"verified": True, "label": label}}
 
 
-def ask(question: str, voice: str = "rachel") -> dict:
+def ask_voice(audio: bytes, mime_type: str, voice: str = "rachel", conversation_id: str | None = None) -> dict:
+    """Step 1: a recorded question. Transcribe it, then run the same flow as a typed question."""
+    started = time.perf_counter()
+    transcript = transcribe(get_gemini(), MODEL, audio, mime_type)
+    took = round(time.perf_counter() - started, 2)
+    if not transcript:
+        return {"status": "needs_clarification", "transcript": "",
+                "conversation_id": conversation_id or new_conversation_id(),
+                "clarification": "I didn't catch that. Could you try again a little closer to the mic?",
+                "timings": {"transcribe": took}}
+    card = ask(transcript, voice, conversation_id)
+    return {"transcript": transcript, **card, "timings": {"transcribe": took, **card["timings"]}}
+
+
+def ask(question: str, voice: str = "rachel", conversation_id: str | None = None) -> dict:
     timings: dict[str, float] = {}
     t = time.perf_counter()
 
@@ -186,39 +259,97 @@ def ask(question: str, voice: str = "rachel") -> dict:
         timings[name] = round(now - t, 2)
         t = now
 
+    memory = get_store()
+    conversation_id = conversation_id or new_conversation_id()
+    history = memory.history(conversation_id)
+
     client = get_gemini()
-    now = datetime.now(timezone.utc)
-    parsed = parse_query(client, question, today=now.date(), model=MODEL)
+    cache = get_cache()
+    hits = {}
+    # 5-minute steps: the same question a minute later maps to the same window (and cache entries).
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    now -= timedelta(minutes=now.minute % 5)
+
+    understand_key = cache_key("understand", {"q": normalize(question), "today": now.date().isoformat(), "model": MODEL,
+                                              "previous": history[-1]["understood"] if history else None})
+    cached = cache.get(understand_key)
+    hits["understand"] = cached is not None
+    if cached:
+        parsed = EnvironmentalQuery.model_validate(cached)
+    else:
+        parsed = parse_query(client, question, today=now.date(), model=MODEL, history=history)
+        cache.set(understand_key, parsed.model_dump(), TTL_UNDERSTAND)
     lap("understand")
     understood = {k: v for k, v in parsed.model_dump().items()
                   if k in ("intent", "metrics", "locations", "start_date", "end_date", "operation") and v not in (None, [])}
+    conversation = {"conversation_id": conversation_id, "turn": len(history) + 1, "memory": memory.mode, "cache": hits}
 
     try:
         plan = make_plan(parsed, now)
     except NeedsClarification as e:
+        memory.append(conversation_id, {"question": question, "understood": understood, "reply": str(e)})
         return {"status": "needs_clarification", "question": question, "clarification": str(e),
-                "understood": understood, "timings": timings}
+                "understood": understood, **conversation, "timings": timings}
 
-    series, baselines = fetch(plan)
-    lap("fetch")
-    analysis = analyze(client, MODEL, question, plan.to_dict(), series, baselines)
-    lap("analyze")
-    verification = anchor(question, analysis, series)
-    lap("verify")
+    ttl = TTL_HISTORICAL if plan.end <= recent_cutoff() else TTL_RECENT
+    answer_key = cache_key("answer", {"q": normalize(question), "plan": plan.to_dict(), "model": MODEL})
+    card = cache.get(answer_key)
+    hits["answer"] = card is not None
+    if card is None:
+        data_key = cache_key("data", plan.to_dict())
+        cached_data = cache.get(data_key)
+        hits["data"] = cached_data is not None
+        if cached_data:
+            series, baselines, batch_ids = cached_data["series"], cached_data["baselines"], cached_data["batch_ids"]
+        else:
+            series, baselines, batch_ids = fetch(plan)
+            if not any(s["warnings"] for s in series):  # never cache a result with a store missing
+                cache.set(data_key, {"series": series, "baselines": baselines, "batch_ids": batch_ids}, ttl)
+        lap("fetch")
+
+        # Give Gemini's analysis the earlier question too, so "what about Philadelphia?" reads naturally.
+        analysis_question = question if not history else f"{question} (follow-up to: {history[-1]['question']})"
+        sources, provenance_error = provenance(batch_ids)
+        analysis = analyze(client, MODEL, analysis_question, plan.to_dict() | {"data_notes": data_notes(plan, sources)},
+                           series, baselines)
+        lap("analyze")
+        verification = anchor(question, analysis, series, sources)
+        lap("verify")
+        card = {
+            "answer_text": analysis.answer_text,
+            "trends": analysis.trends,
+            "comparison": analysis.comparison,
+            "chart": build_chart(analysis.chart, series, baselines),
+            "data": [{k: s[k] for k in ("metric", "location", "unit", "route", "granularity", "sources", "warnings", "summary")}
+                     for s in series],
+            "historical_baselines": baselines,
+            "data_notes": data_notes(plan, sources),
+            "provenance": sources,
+            **({"provenance_error": provenance_error} if provenance_error else {}),
+            "verification": verification,
+        }
+        # Only cache complete, verified answers; a cached answer reuses its original Solana proof.
+        if verification["badge"]["verified"] and not any(d["warnings"] for d in card["data"]):
+            cache.set(answer_key, card, ttl)
+    else:
+        lap("answer_cache")
+
+    # Remember what was actually answered (resolved dates, not "last week") for the next follow-up.
+    memory.append(conversation_id, {
+        "question": question,
+        "understood": understood | {"metrics": plan.metrics, "locations": plan.locations,
+                                    "start_date": plan.start.date().isoformat(),
+                                    "end_date": plan.end.date().isoformat(), "operation": plan.operation},
+        "reply": card["answer_text"],
+    })
 
     return {
         "status": "answered",
         "question": question,
+        **conversation,
         "understood": understood,
         "plan": plan.to_dict(),
-        "answer_text": analysis.answer_text,
-        "trends": analysis.trends,
-        "comparison": analysis.comparison,
-        "chart": build_chart(analysis.chart, series, baselines),
-        "data": [{k: s[k] for k in ("metric", "location", "unit", "route", "granularity", "sources", "warnings", "summary")}
-                 for s in series],
-        "historical_baselines": baselines,
-        "audio_url": "/voice/speak?" + urlencode({"text": analysis.answer_text, "voice": voice}),
-        "verification": verification,
+        **card,
+        "audio_url": "/voice/speak?" + urlencode({"text": card["answer_text"], "voice": voice}),
         "timings": timings,
     }

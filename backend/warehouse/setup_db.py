@@ -68,7 +68,7 @@ def seed(cur, recent_days: int) -> None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--schema-only", action="store_true")
-    parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS", "14")),
+    parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS", "7")),
                         help="stop history this many days ago; Tiger holds the rest")
     args = parser.parse_args()
 

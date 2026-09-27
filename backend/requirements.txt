@@ -7,3 +7,4 @@ mcp>=2.2
 snowflake-connector-python>=4.7
 google-genai>=2.25
 solders>=0.29
+redis>=5

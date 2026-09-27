@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Protocol
 
+from shared.catalog import unit as metric_unit
 from shared.series import DataUnavailable, error_text, json_safe, make_point, make_result
 from shared.sql_guard import check_readonly
 from tiger.sample_data import LOCATIONS, METRICS
@@ -30,8 +31,10 @@ DAILY_READINGS (one row per day, location, metric)
 MONTHLY_READINGS (view over DAILY_READINGS)
   MONTH DATE, LOCATION, METRIC, UNIT, AVG_VALUE, MIN_VALUE, MAX_VALUE, SAMPLES
 
-metric values: pm25 (µg/m³), o3 (ppb), no2 (ppb), co2 (ppm), temperature (°C), humidity (%)
-location values: lowercase snake_case city names, e.g. philadelphia, new_york
+metric values: pm25 (µg/m³), o3 (ppb), no2 (ppb), temperature (°C), humidity (%), streamflow (ft³/s),
+  water_temperature (°C), co2 (ppm, only at location 'global' = NOAA Mauna Loa)
+location values: philadelphia, new_york, pittsburgh, baltimore, global
+SOURCE / BATCH_ID: which agency feed and which provenance batch (anchored on Solana) each row came from
 Snowflake SQL: DATE_TRUNC('year', DAY), DATEADD(year, -5, CURRENT_DATE()), YEAR(DAY), MONTH(DAY).
 """
 
@@ -171,8 +174,11 @@ class SnowflakeRepo:
             (metric, location, first, last),
         )
         points = [make_point(r["t"], r["avg_value"], r["min_value"], r["max_value"], r["samples"]) for r in rows]
-        unit = rows[0]["unit"] if rows else METRICS.get(metric, ("",))[0]
-        return make_result(metric, location, unit, g, start, end, points)
+        batches = self._safe_query(
+            "SELECT DISTINCT SOURCE, BATCH_ID FROM DAILY_READINGS WHERE METRIC = %s AND LOCATION = %s "
+            "AND DAY >= %s AND DAY < %s AND BATCH_ID IS NOT NULL", (metric, location, first, last))
+        unit = rows[0]["unit"] if rows else metric_unit(metric)
+        return make_result(metric, location, unit, g, start, end, points, batches=batches)
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         statement = check_readonly(sql)
@@ -215,7 +221,7 @@ class MockWarehouseRepo:
             make_point(k, sum(r[1] for r in rs) / len(rs), min(r[2] for r in rs), max(r[3] for r in rs), sum(r[4] for r in rs))
             for k, rs in sorted(buckets.items())
         ]
-        return make_result(metric, location, METRICS.get(metric, ("",))[0], g, start, end, points)
+        return make_result(metric, location, metric_unit(metric), g, start, end, points, batches=[])
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         check_readonly(sql)
@@ -231,5 +237,5 @@ def get_repo() -> WarehouseRepo:
         if is_configured():
             _repo = SnowflakeRepo()
         else:
-            _repo = MockWarehouseRepo(int(os.getenv("RECENT_DAYS", "14")))
+            _repo = MockWarehouseRepo(int(os.getenv("RECENT_DAYS", "7")))
     return _repo

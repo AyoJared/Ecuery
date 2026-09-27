@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
 
 from .sample_data import LOCATIONS, METRICS, floor_to_step, generate
+from shared.catalog import unit as metric_unit
 from shared.series import DataUnavailable, json_safe, make_point, make_result, parse_time
 from shared.sql_guard import check_readonly
 
@@ -28,8 +29,10 @@ readings_hourly / readings_daily (continuous aggregates of sensor_readings)
   bucket TIMESTAMPTZ, location TEXT, metric TEXT, unit TEXT,
   avg_value DOUBLE PRECISION, min_value DOUBLE PRECISION, max_value DOUBLE PRECISION, samples BIGINT
 
-metric values: pm25 (µg/m³), o3 (ppb), no2 (ppb), co2 (ppm), temperature (°C), humidity (%)
-location values: lowercase snake_case city names, e.g. philadelphia, new_york
+metric values: pm25 (µg/m³), o3 (ppb), no2 (ppb), temperature (°C), humidity (%), streamflow (ft³/s),
+  water_temperature (°C), co2 (ppm, only at location 'global' = NOAA Mauna Loa)
+location values: philadelphia, new_york, pittsburgh, baltimore, global
+source / batch_id: which agency feed and which provenance batch (anchored on Solana) each row came from
 Prefer readings_hourly / readings_daily for anything longer than a day.
 Use time_bucket('1 hour', time) for custom bucketing and now() - INTERVAL '...' for ranges.
 """
@@ -115,9 +118,12 @@ class PostgresTigerRepo:
                       ORDER BY bucket"""
         with self._connect() as conn:
             rows = conn.execute(sql, (metric, location, start, end)).fetchall()
-        points = [make_point(r["time"], r["avg_value"], r["min_value"], r["max_value"], r["samples"]) for r in rows]
-        unit = rows[0]["unit"] if rows else METRICS.get(metric, ("",))[0]
-        return make_result(metric, location, unit, g, start, end, points)
+            points = [make_point(r["time"], r["avg_value"], r["min_value"], r["max_value"], r["samples"]) for r in rows]
+            batches = conn.execute(
+                "SELECT DISTINCT source, batch_id FROM sensor_readings WHERE metric = %s AND location = %s "
+                "AND time >= %s AND time < %s AND batch_id IS NOT NULL", (metric, location, start, end)).fetchall()
+        unit = rows[0]["unit"] if rows else metric_unit(metric)
+        return make_result(metric, location, unit, g, start, end, points, batches=[dict(b) for b in batches])
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         statement = check_readonly(sql)
@@ -162,7 +168,7 @@ class MockTigerRepo:
                 key = t.replace(minute=0) if g == "hourly" else t.replace(hour=0, minute=0)
                 buckets[key].append(v)
             points = [make_point(k, sum(vs) / len(vs), min(vs), max(vs), len(vs)) for k, vs in sorted(buckets.items())]
-        return make_result(metric, location, METRICS.get(metric, ("",))[0], g, start, end, points)
+        return make_result(metric, location, metric_unit(metric), g, start, end, points, batches=[])
 
     def run_readonly_sql(self, sql: str, limit: int = 200) -> dict:
         check_readonly(sql)  # still validate, so the guard can be demoed without a DB

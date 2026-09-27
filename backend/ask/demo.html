@@ -15,6 +15,9 @@
   input { flex:1; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font:inherit; background:#fff; }
   button { padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
   button:disabled { opacity:.6; cursor:wait; }
+  #mic { background:#fff; color:var(--ink); border:1px solid var(--line); min-width:52px; }
+  #mic.rec { background:#c0392b; color:#fff; border-color:#c0392b; }
+  .heard { color: var(--muted); font-style: italic; margin: 0 0 8px; }
   .examples { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 24px; }
   .examples button { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:400; padding:6px 10px; font-size:13px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
@@ -35,9 +38,10 @@
 <main>
   <h1>Ecuery</h1>
   <p class="sub">Ask about air quality, CO2 or weather in Baltimore, New York, Philadelphia or Pittsburgh.</p>
-  <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="go">Ask</button></form>
+  <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="mic" type="button" title="Ask out loud">🎤</button><button id="go">Ask</button></form>
   <div class="examples" id="ex"></div>
   <div class="status" id="status"></div>
+  <div class="status" id="conv"></div>
   <div id="out"></div>
 </main>
 <script>
@@ -49,29 +53,85 @@ const EXAMPLES = [
   "Compare smog in Philly and NYC this week",
 ];
 const $ = (id) => document.getElementById(id);
+let conversationId = null;  // sent back with each question so follow-ups keep context
+function showConversation(d) {
+  if (d.conversation_id) conversationId = d.conversation_id;
+  $("conv").innerHTML = conversationId
+    ? `Conversation turn ${d.turn ?? "?"} · follow-ups like “what about Pittsburgh?” work · <a href="#" id="reset">New conversation</a>`
+    : "";
+  const r = $("reset");
+  if (r) r.onclick = async (e) => { e.preventDefault(); await fetch(`/ask/conversation/${conversationId}`, {method: "DELETE"});
+                                    conversationId = null; $("conv").textContent = ""; $("out").innerHTML = ""; };
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 EXAMPLES.forEach(q => { const b = document.createElement("button"); b.type = "button"; b.textContent = q;
   b.onclick = () => { $("q").value = q; ask(q); }; $("ex").appendChild(b); });
 $("f").onsubmit = (e) => { e.preventDefault(); const q = $("q").value.trim() || $("q").placeholder; ask(q); };
 
-async function ask(question) {
-  $("go").disabled = true; $("out").innerHTML = ""; $("status").textContent = "Thinking…";
+function ask(question) {
+  return send(fetch("/ask", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({question, conversation_id: conversationId}) }));
+}
+
+async function send(request) {
+  $("go").disabled = true; $("mic").disabled = true; $("out").innerHTML = ""; $("status").textContent = "Thinking…";
   try {
-    const res = await fetch("/ask", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({question}) });
+    const res = await request;
     const d = await res.json();
     if (!res.ok) throw new Error(d.detail || res.statusText);
     render(d);
+    showConversation(d);
     $("status").textContent = d.timings ? `Answered in ${Object.values(d.timings).reduce((a, b) => a + b, 0).toFixed(1)}s` : "";
   } catch (err) { $("status").textContent = "Error: " + err.message; }
-  finally { $("go").disabled = false; }
+  finally { $("go").disabled = false; $("mic").disabled = false; }
 }
 
+// Step 1 of the flow: tap mic, speak, and it stops on ~1.5s of silence (or tap again).
+let recorder = null;
+$("mic").onclick = async () => {
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (err) { $("status").textContent = "Microphone blocked: " + err.message; return; }
+  const type = ["audio/webm", "audio/ogg", "audio/mp4"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+  recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const chunks = [];
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+
+  const ctx = new AudioContext(), analyser = ctx.createAnalyser(), buf = new Float32Array(analyser.fftSize);
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  let heardSpeech = false, quietSince = performance.now();
+  const started = performance.now();
+  const watch = setInterval(() => {
+    analyser.getFloatTimeDomainData(buf);
+    const level = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length);
+    const now = performance.now();
+    if (level > 0.02) { heardSpeech = true; quietSince = now; }
+    $("status").textContent = `Listening… ${((now - started) / 1000).toFixed(0)}s (tap 🎤 to stop)`;
+    if ((heardSpeech && now - quietSince > 1500) || now - started > 30000) recorder.stop();
+  }, 100);
+
+  recorder.onstop = () => {
+    clearInterval(watch); ctx.close(); stream.getTracks().forEach(t => t.stop());
+    $("mic").classList.remove("rec"); recorder = null;
+    const blob = new Blob(chunks, { type: chunks[0]?.type || type || "audio/webm" });
+    if (!blob.size) { $("status").textContent = "Nothing recorded."; return; }
+    const form = new FormData();
+    if (conversationId) form.append("conversation_id", conversationId);
+    form.append("audio", blob, "question." + (blob.type.split("/")[1] || "webm").split(";")[0]);
+    send(fetch("/ask/voice", { method: "POST", body: form }));
+  };
+  recorder.start(250);
+  $("mic").classList.add("rec");
+};
+
 function render(d) {
+  const heard = d.transcript !== undefined ? `<p class="heard">You asked: “${esc(d.transcript || "…")}”</p>` : "";
   if (d.status === "needs_clarification") {
-    $("out").innerHTML = `<div class="card"><p class="answer clarify">${esc(d.clarification)}</p></div>`; return;
+    $("out").innerHTML = `<div class="card">${heard}<p class="answer clarify">${esc(d.clarification)}</p></div>`; return;
   }
   const v = d.verification;
   $("out").innerHTML = `<div class="card">
+    ${heard}
     <p class="answer">${esc(d.answer_text)}</p>
     <audio id="player" controls src="${esc(d.audio_url)}"></audio>
     ${d.comparison ? `<p>${esc(d.comparison)}</p>` : ""}
@@ -81,7 +141,9 @@ function render(d) {
       ${v.badge.verified
         ? `<span class="badge">✓ ${esc(v.badge.label)} · <a href="${esc(v.explorer_url)}" target="_blank" rel="noopener">${esc(v.signature.slice(0, 10))}…</a></span>`
         : `<span class="clarify" title="${esc(v.error)}">✗ ${esc(v.badge.label)}</span>`}
-      <span>Sources: ${d.data.map(s => Object.keys(s.sources).join(" + ")).join(", ")}</span>
+      <span>Data: ${(d.provenance || []).length
+        ? d.provenance.map(p => `<a href="/verify/batch/${esc(p.batch_id)}" target="_blank" title="${esc(p.dataset)}">${esc(p.source.toUpperCase())}</a> (${esc(p.quality)})`).join(", ")
+        : "no source batches"}</span>
       <span>Route: ${d.data.map(s => s.route).join(", ")}</span>
     </div>
     <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>

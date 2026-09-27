@@ -13,10 +13,10 @@ from datetime import datetime, timedelta, timezone
 
 from shared.series import DataUnavailable, make_point, make_result
 from tiger.repo import get_repo as get_tiger
-from tiger.sample_data import METRICS
+from shared.catalog import unit as metric_unit
 from warehouse.repo import get_repo as get_warehouse
 
-RECENT_DAYS = int(os.getenv("RECENT_DAYS", "14"))
+RECENT_DAYS = int(os.getenv("RECENT_DAYS", "7"))
 
 
 def recent_cutoff(now: datetime | None = None) -> datetime:
@@ -51,6 +51,7 @@ def get_readings(metric: str, location: str, start: datetime, end: datetime) -> 
     warnings: list[str] = []
     points: list[dict] = []
     sources: dict[str, int] = {}
+    batches: dict[str, dict] = {}
 
     def fetch(name: str, fn, *args) -> dict | None:
         try:
@@ -59,6 +60,8 @@ def get_readings(metric: str, location: str, start: datetime, end: datetime) -> 
             warnings.append(f"{name}: {e}")
             return None
         sources[name] = result["count"]
+        for b in result.get("batches", []):
+            batches[b["batch_id"]] = {**b, "store": name}
         return result
 
     if route == "recent":
@@ -82,8 +85,9 @@ def get_readings(metric: str, location: str, start: datetime, end: datetime) -> 
 
     if not sources:
         raise DataUnavailable("; ".join(warnings) or "No data source available")
-    return make_result(metric, location, METRICS.get(metric, ("",))[0], granularity, start, end, points,
-                       route=route, recent_cutoff=cutoff.isoformat(), sources=sources, warnings=warnings)
+    return make_result(metric, location, metric_unit(metric), granularity, start, end, points,
+                       route=route, recent_cutoff=cutoff.isoformat(), sources=sources, warnings=warnings,
+                       batches=sorted(batches.values(), key=lambda b: (b["store"], b["source"], b["batch_id"])))
 
 
 def _years_back(t: datetime, years: int) -> datetime:
