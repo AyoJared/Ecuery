@@ -26,17 +26,17 @@ const steps = [
   {
     title: "Ask in plain English",
     body: "Type or speak a question about any place and any time range. No dashboards, no SQL.",
-    durationMs: 5400,
+    durationMs: 4860,
   },
   {
     title: "We find the right data",
     body: "Your question becomes a precise query: the metric, the place and the years, routed to the right dataset.",
-    durationMs: 5400,
+    durationMs: 4860,
   },
   {
     title: "Get an answer you can check",
     body: "A direct answer and a chart, with the source cited on every result.",
-    durationMs: 6750,
+    durationMs: 6075,
   },
 ];
 
