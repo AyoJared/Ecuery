@@ -30,15 +30,18 @@ type EarthGlobeProps = {
   onSelect: (id: string | null) => void;
   size: number;
   paused: boolean;
+  /** Where the camera starts. Defaults to an Atlantic-centred view of the whole globe. */
+  homeView?: { lat: number; lng: number; altitude: number };
 };
 
-export function EarthGlobe({ events, selectedId, onSelect, size, paused }: EarthGlobeProps) {
+export function EarthGlobe({ events, selectedId, onSelect, size, paused, homeView = HOME_VIEW }: EarthGlobeProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const markers = useRef(new Map<string, HTMLElement>());
 
   // Marker DOM listeners are created once, so they read the latest values through refs.
   const onSelectRef = useRef(onSelect);
   const selectedIdRef = useRef(selectedId);
+  const homeViewRef = useRef(homeView);
   useEffect(() => {
     onSelectRef.current = onSelect;
     selectedIdRef.current = selectedId;
@@ -95,7 +98,7 @@ export function EarthGlobe({ events, selectedId, onSelect, size, paused }: Earth
     controls.enableZoom = false;
     controls.enablePan = false;
     if (controls.domElement) controls.domElement.style.touchAction = "pan-y";
-    globe.pointOfView(HOME_VIEW);
+    globe.pointOfView(homeViewRef.current);
   }, []);
 
   // Highlight the selected marker, fly to it, and pause spinning while one is selected.

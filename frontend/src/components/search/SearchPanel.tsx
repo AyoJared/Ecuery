@@ -1,16 +1,17 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { exampleQueries } from "@/lib/example-queries";
 import { ExampleQueries } from "./ExampleQueries";
 import { SearchBar } from "./SearchBar";
 import { useSearch } from "./SearchContext";
 
-// Next pass: replace handleSubmit with a call to the backend and render the answer + chart.
 export function SearchPanel({ align = "center" }: { align?: "center" | "left" }) {
   const { query, setQuery, inputRef } = useSearch();
+  const router = useRouter();
 
   function handleSubmit(q: string) {
-    console.info("[search] not wired up yet:", q);
+    router.push(`/search?q=${encodeURIComponent(q)}`);
   }
 
   function handleSelectExample(q: string) {

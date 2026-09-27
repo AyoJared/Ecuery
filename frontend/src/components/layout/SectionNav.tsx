@@ -48,7 +48,7 @@ export function SectionNavLinks() {
         return (
           <a
             key={s.id}
-            href={`#${s.id}`}
+            href={`/#${s.id}`}
             aria-current={current ? "location" : undefined}
             className={`relative rounded-full px-4 py-2 text-[12px] font-medium uppercase tracking-[0.16em] transition-colors ${
               current ? "text-ink" : "text-ink-muted hover:text-ink"
@@ -117,7 +117,7 @@ export function SectionNavMenu() {
             {sections.map((s) => (
               <a
                 key={s.id}
-                href={`#${s.id}`}
+                href={`/#${s.id}`}
                 onClick={() => setOpen(false)}
                 aria-current={s.id === active ? "location" : undefined}
                 className={`flex items-center justify-between rounded-xl px-3 py-3.5 text-sm font-medium uppercase tracking-[0.16em] transition-colors ${
