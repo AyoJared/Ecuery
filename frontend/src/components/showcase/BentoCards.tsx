@@ -10,13 +10,12 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 type BentoCardProps = {
   eyebrow: string;
   title: string;
-  soon?: boolean;
   className?: string;
   children: ReactNode;
 };
 
 // Shared shell for the small cards in the showcase grid.
-export function BentoCard({ eyebrow, title, soon, className = "", children }: BentoCardProps) {
+export function BentoCard({ eyebrow, title, className = "", children }: BentoCardProps) {
   return (
     <div
       className={`flex flex-col gap-5 rounded-3xl border border-line bg-surface/60 p-6 transition-colors hover:border-line-strong ${className}`}
@@ -26,11 +25,6 @@ export function BentoCard({ eyebrow, title, soon, className = "", children }: Be
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-ink-faint">{eyebrow}</p>
           <h3 className="mt-1.5 text-lg font-semibold tracking-tight text-ink">{title}</h3>
         </div>
-        {soon && (
-          <span className="shrink-0 rounded-full border border-sun/30 bg-sun/10 px-2.5 py-0.5 text-[11px] text-sun">
-            Coming soon
-          </span>
-        )}
       </div>
       {children}
     </div>
@@ -49,7 +43,7 @@ export function VoiceCard() {
   const animated = playing && !reduceMotion;
 
   return (
-    <BentoCard eyebrow="Listen" title="Hear the answer" soon>
+    <BentoCard eyebrow="Listen" title="Hear the answer">
       <div className="flex items-center gap-4">
         <button
           onClick={() => setPlaying((p) => !p)}
@@ -88,7 +82,7 @@ export function VoiceCard() {
 
 export function VerifiedCard() {
   return (
-    <BentoCard eyebrow="Trust" title="Verified source" soon>
+    <BentoCard eyebrow="Trust" title="Verified source">
       <div className="rounded-2xl border border-line bg-canvas/60 p-4 font-mono text-[11px] leading-relaxed text-ink-muted sm:text-xs">
         <div className="flex items-center justify-between gap-3">
           <span className="text-ink-faint">sha-256</span>
