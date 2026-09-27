@@ -19,7 +19,7 @@ class ChartChoice(BaseModel):
 
 class Analysis(BaseModel):
     answer_text: str = Field(description="2-4 plain sentences answering the question. Shown in the UI and read "
-                                         "aloud, so no markdown, bullet points or emoji. Include the key numbers with units.")
+                                         "aloud, so no markdown, bullet points or emoji. Write numbers as digits, not words. Include the key numbers with units.")
     trends: list[str] = Field(default_factory=list, description="1-3 short observations about changes over time")
     comparison: str | None = Field(None, description="One sentence comparing recent vs historical or between "
                                                      "locations, if the data supports it")

@@ -17,7 +17,9 @@ from shared.catalog import METRICS
 
 Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity", "streamflow", "water_temperature"]
 assert set(Metric.__args__) == set(METRICS), "keep Metric in sync with shared/catalog.py"
-Operation = Literal["latest", "summary", "trend", "peak", "compare_history", "compare_locations"]
+Operation = Literal["latest", "summary", "trend", "peak", "compare_history", "compare_locations", "count", "list"]
+EventType = Literal["tornado", "hail", "thunderstorm_wind", "flood", "hurricane", "winter_storm", "heat", "wildfire",
+                    "drought", "earthquake", "volcano", "landslide", "severe_storm"]
 
 
 class EnvironmentalQuery(BaseModel):
@@ -38,8 +40,18 @@ class EnvironmentalQuery(BaseModel):
     operation: Operation | None = Field(
         None,
         description="latest = current value; summary = how was it; trend = how it changed over time; "
-                    "peak = when was it highest/worst; compare_history = vs normal / usual / previous years; "
-                    "compare_locations = between cities")
+                    "peak = when was it highest/worst (or the biggest event); compare_history = vs normal / usual / "
+                    "previous years; compare_locations = between places; count = how many events; list = which events")
+
+    # Natural disasters and other events (instead of metrics)
+    event_types: list[EventType] = Field(
+        default_factory=list,
+        description="Disasters / events the question is about (tornadoes, earthquakes, wildfires, hurricanes, ...). "
+                    "Use this instead of metrics for event questions.")
+    radius_km: float | None = Field(None, description="Only if the user gives a distance ('within 100 miles'), in km.")
+    min_magnitude: float | None = Field(
+        None, description="Only if the user gives a threshold: earthquake magnitude ('M6+'), tornado EF rating "
+                          "('EF3 or stronger' -> 3), hail size in inches.")
 
     # Actions and decisions
     proposed_action: str | None = None
@@ -76,7 +88,13 @@ gives it or it's needed to disambiguate, e.g. "Delhi, India", "Paris, France", "
 Expand nicknames ("NYC" -> "New York City", "Philly" -> "Philadelphia", "LA" -> "Los Angeles").
 Keep a location key from an earlier turn (like delhi_in or new_york) exactly as given.
 CO2 concentration is only measured globally (NOAA Mauna Loa): for CO2-only questions no place is needed.
-Only set clarification_question when the metric or location truly can't be inferred.
+
+Events: questions about natural disasters or weather events (tornadoes, earthquakes, wildfires, hurricanes /
+tropical storms / typhoons, floods, hail, damaging wind, blizzards / winter storms, heat waves, droughts, volcanic
+eruptions, landslides) set event_types and leave metrics empty. "How many" -> operation count; "which / list" ->
+list; "biggest / strongest / worst" -> peak. A place is optional for events ("biggest earthquakes in 2025").
+If no time is given for an event question, leave the dates empty.
+Only set clarification_question when the metric/event or location truly can't be inferred.
 
 Follow-ups: if earlier turns of the conversation are given, the new question may depend on them
 ("what about Philadelphia?", "and last month?", "is that normal?", or just "Philadelphia" answering

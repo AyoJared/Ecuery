@@ -35,7 +35,8 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 mcp = MCPServer(
     name="ecuery-data",
     instructions=(
-        "Environmental data (air quality, weather, river flow, global CO2) for any place on Earth. "
+        "Environmental data (air quality, weather, river flow, global CO2) and natural disasters (find_events) "
+        "for any place on Earth. "
         "Pass locations as place names ('Delhi', 'Paris, France', 'Philadelphia'); a new place is fetched on first use "
         "(a few seconds). A few US cities use measured EPA/NOAA/USGS data; elsewhere values are modeled "
         "(Copernicus CAMS, ECMWF ERA5, GloFAS). "
@@ -126,6 +127,31 @@ def compare_recent_to_history(metric: str, location: str, days: int = 7, years: 
     days = max(1, min(days, RECENT_DAYS))
     years = max(1, min(years, 20))
     return _call(merged.compare_to_history, metric, _place(location, metric), days, years)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def find_events(event_type: Literal["tornado", "hail", "thunderstorm_wind", "flood", "hurricane", "winter_storm", "heat",
+                                    "wildfire", "drought", "earthquake", "volcano", "landslide", "severe_storm"],
+                location: str | None = None, start: str | None = None, end: str | None = None,
+                radius_km: float | None = None, min_magnitude: float | None = None) -> dict:
+    """Natural disasters / weather events near a place (or worldwide if no location), with exact counts.
+
+    Sources: NOAA Storm Events (US tornadoes, hail, wind, floods, hurricanes, winter storms, heat; a few months
+    behind), USGS earthquakes (worldwide, M2.5+), NASA EONET (worldwide wildfires, storms, volcanoes).
+    Dates are ISO (default: the last 365 days). min_magnitude: earthquake M, tornado EF number, hail inches.
+    Returns the count, counts by month, the biggest events and, if few are inside the area, the nearest ones.
+    """
+    from ask.events_answer import NeedsClarification, fetch_events, make_event_plan
+    from parser import EnvironmentalQuery
+    q = EnvironmentalQuery(intent="find_events", event_types=[event_type], locations=[location] if location else [],
+                           start_date=start, end_date=end, radius_km=radius_km, min_magnitude=min_magnitude, operation="list")
+    try:
+        plan = make_event_plan(q, datetime.now(timezone.utc))
+    except NeedsClarification as e:
+        raise ToolError(str(e)) from None
+    found = fetch_events(plan)
+    return {"search": plan.to_dict(), **{k: found["summary"][k] for k in ("count", "by_month", "deaths", "injuries", "damage_usd")},
+            "biggest": found["biggest"], "nearest_outside_area": found["nearest"], "batch_ids": found["batch_ids"]}
 
 
 @mcp.tool(annotations=READ_ONLY)

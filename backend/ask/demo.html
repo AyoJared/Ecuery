@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ecuery demo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root { --bg:#f6f7f5; --card:#fff; --ink:#1d2320; --muted:#66706b; --line:#e2e6e3; --accent:#1f7a5a; --warn:#b4531b; }
   * { box-sizing: border-box; }
@@ -37,7 +39,7 @@
 <body>
 <main>
   <h1>Ecuery</h1>
-  <p class="sub">Ask about air quality, weather, rivers or CO2 anywhere in the world.</p>
+  <p class="sub">Ask about air quality, weather, rivers, CO2 or natural disasters anywhere in the world.</p>
   <form id="f"><input id="q" placeholder="Was air quality in New York worse during the June 2023 wildfire smoke?" autocomplete="off"><button id="mic" type="button" title="Ask out loud">🎤</button><button id="go">Ask</button></form>
   <div class="examples" id="ex"></div>
   <div class="status" id="status"></div>
@@ -46,12 +48,12 @@
 </main>
 <script>
 const EXAMPLES = [
+  "How many tornadoes were there in 2025 in Philly?",
+  "What were the biggest earthquakes in 2025?",
   "How bad was air pollution in Delhi in November 2023?",
-  "Was air quality in New York worse during the June 2023 wildfire smoke?",
   "Is Paris hotter than usual this week?",
-  "Compare air quality in Lagos and Cairo this month",
-  "How has the Schuylkill River flow in Philadelphia changed this week?",
-  "What is the global CO2 level right now?",
+  "EF3 or stronger tornadoes in Oklahoma since 2024",
+  "Were there any wildfires near Los Angeles this year?",
 ];
 const $ = (id) => document.getElementById(id);
 let conversationId = null;  // sent back with each question so follow-ups keep context
@@ -138,6 +140,7 @@ function render(d) {
     ${d.comparison ? `<p>${esc(d.comparison)}</p>` : ""}
     ${d.trends?.length ? `<ul>${d.trends.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
     ${chart(d.chart)}
+    ${d.kind === "events" ? eventsBlock(d) : ""}
     <div class="meta">
       ${v.badge.verified
         ? `<span class="badge">✓ ${esc(v.badge.label)} · <a href="${esc(v.explorer_url)}" target="_blank" rel="noopener">${esc(v.signature.slice(0, 10))}…</a></span>`
@@ -145,12 +148,41 @@ function render(d) {
       <span>Data: ${(d.provenance || []).length
         ? d.provenance.map(p => `<a href="/verify/batch/${esc(p.batch_id)}" target="_blank" title="${esc(p.dataset)}">${esc(p.source.toUpperCase())}</a> (${esc(p.quality)})`).join(", ")
         : "no source batches"}</span>
-      <span>Route: ${d.data.map(s => s.route).join(", ")}</span>
+      ${d.data ? `<span>Route: ${d.data.map(s => s.route).join(", ")}</span>` : ""}
     </div>
     <details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(d, null, 2))}</pre></details>
   </div>`;
+  if (d.kind === "events") drawMap(d.map);
   // Browsers may block autoplay after a slow request; the controls are there as a fallback.
   $("player").play().catch(() => {});
+}
+
+function eventsBlock(d) {
+  const e = d.events;
+  const row = (x, near) => `<tr><td>${esc(x.date)}</td><td>${esc(x.strength || x.type)}</td>
+    <td>${esc(x.region || x.name || "")}</td><td>${x.distance_km != null ? esc(x.distance_km) + " km" : ""}${near ? " (outside area)" : ""}</td></tr>`;
+  const rows = e.biggest.slice(0, 10).map(x => row(x, false)).join("") + e.nearest.map(x => row(x, true)).join("");
+  return `<p><strong>${e.count.toLocaleString()}</strong> event${e.count === 1 ? "" : "s"} found
+      ${e.deaths ? ` · ${e.deaths} deaths` : ""}${e.injuries ? ` · ${e.injuries} injuries` : ""}</p>
+    ${rows ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="text-align:left;color:#66706b"><th>Date</th><th>Strength</th><th>Where</th><th>Distance</th></tr>${rows}</table></div>` : ""}
+    <div id="map" style="height:280px;border-radius:10px;margin-top:12px"></div>`;
+}
+
+function drawMap(m) {
+  if (!window.L || !m || !m.points.length && !m.center) return;
+  const center = m.center ? [m.center.lat, m.center.lon] : [m.points[0].lat, m.points[0].lon];
+  const map = L.map("map").setView(center, m.center ? 8 : 2);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {attribution: "© OpenStreetMap"}).addTo(map);
+  if (m.center && m.radius_km) L.circle(center, {radius: m.radius_km * 1000, color: "#1f7a5a", fillOpacity: 0.05}).addTo(map);
+  const bounds = [];
+  m.points.slice(0, 300).forEach(p => {
+    L.circleMarker([p.lat, p.lon], {radius: 5, color: "#b4531b", fillOpacity: 0.7})
+      .bindPopup(`${esc(p.date)} · ${esc(p.strength || p.type)}<br>${esc(p.region || p.name || "")}`).addTo(map);
+    bounds.push([p.lat, p.lon]);
+  });
+  if (m.center) bounds.push(center);
+  if (bounds.length > 1) map.fitBounds(bounds, {padding: [20, 20], maxZoom: 9});
 }
 
 function chart(c) {

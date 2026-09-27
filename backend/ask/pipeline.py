@@ -271,6 +271,48 @@ def anchor(question: str, analysis, series: list[dict], sources: list[dict]) -> 
             "badge": {"verified": True, "label": label}}
 
 
+def _last_day(end: datetime) -> str:
+    """Plans use an exclusive end; the parser (and follow-ups) speak in inclusive end dates."""
+    return (end - timedelta(microseconds=1)).date().isoformat()
+
+
+def _ask_events(client, question, voice, parsed, understood, conversation, history, now, hits, lap, timings) -> dict:
+    from .events_answer import NeedsClarification as EventClarification, build_card, make_event_plan
+
+    memory, cache, conversation_id = get_store(), get_cache(), conversation["conversation_id"]
+    try:
+        plan = make_event_plan(parsed, now)
+    except EventClarification as e:
+        memory.append(conversation_id, {"question": question, "understood": understood, "reply": str(e)})
+        return {"status": "needs_clarification", "question": question, "clarification": str(e),
+                "understood": understood, **conversation, "timings": timings}
+
+    # Past years don't change; anything reaching the last day can gain events.
+    ttl = TTL_HISTORICAL if plan.end < now - timedelta(days=1) else TTL_RECENT
+    answer_key = cache_key("answer", {"q": normalize(question), "events": plan.to_dict(), "model": MODEL})
+    card = cache.get(answer_key)
+    hits["answer"] = card is not None
+    if card is None:
+        analysis_question = question if not history else f"{question} (follow-up to: {history[-1]['question']})"
+        card = build_card(client, MODEL, question, analysis_question, plan, provenance, lap)
+        if card["verification"]["badge"]["verified"]:
+            cache.set(answer_key, card, ttl)
+    else:
+        lap("answer_cache")
+
+    memory.append(conversation_id, {
+        "question": question,
+        "understood": understood | {"event_types": plan.types, "locations": [plan.place["key"]] if plan.place else [],
+                                    "start_date": plan.start.date().isoformat(), "end_date": _last_day(plan.end),
+                                    "operation": plan.operation},
+        "reply": card["answer_text"],
+    })
+    return {"status": "answered", "question": question, **conversation, "understood": understood,
+            "plan": plan.to_dict(), **card,
+            "audio_url": "/voice/speak?" + urlencode({"text": card["answer_text"], "voice": voice}),
+            "timings": timings}
+
+
 def ask_voice(audio: bytes, mime_type: str, voice: str = "rachel", conversation_id: str | None = None) -> dict:
     """Step 1: a recorded question. Transcribe it, then run the same flow as a typed question."""
     started = time.perf_counter()
@@ -317,8 +359,12 @@ def ask(question: str, voice: str = "rachel", conversation_id: str | None = None
         cache.set(understand_key, parsed.model_dump(), TTL_UNDERSTAND)
     lap("understand")
     understood = {k: v for k, v in parsed.model_dump().items()
-                  if k in ("intent", "metrics", "locations", "start_date", "end_date", "operation") and v not in (None, [])}
+                  if k in ("intent", "metrics", "event_types", "locations", "start_date", "end_date", "operation",
+                           "radius_km", "min_magnitude") and v not in (None, [])}
     conversation = {"conversation_id": conversation_id, "turn": len(history) + 1, "memory": memory.mode, "cache": hits}
+
+    if parsed.event_types:  # disasters / events: a different kind of data than readings
+        return _ask_events(client, question, voice, parsed, understood, conversation, history, now, hits, lap, timings)
 
     try:
         plan = make_plan(parsed, now)
@@ -379,7 +425,7 @@ def ask(question: str, voice: str = "rachel", conversation_id: str | None = None
         "question": question,
         "understood": understood | {"metrics": plan.metrics, "locations": plan.locations,
                                     "start_date": plan.start.date().isoformat(),
-                                    "end_date": plan.end.date().isoformat(), "operation": plan.operation},
+                                    "end_date": _last_day(plan.end), "operation": plan.operation},
         "reply": card["answer_text"],
     })
 

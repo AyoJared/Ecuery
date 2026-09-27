@@ -111,6 +111,9 @@ def registry(batch_ids: list[str] | None = None, limit: int = 50) -> list[dict]:
 
 def stored_rows(batch_id: str, store: str) -> list[tuple]:
     """The rows currently in the database for a batch, in the same shape they were hashed at ingest."""
+    if store == "events":
+        from .events import stored_event_rows
+        return stored_event_rows(batch_id)
     if store == "tiger":
         with tiger_conn() as conn:
             return [tuple(r) for r in conn.execute(

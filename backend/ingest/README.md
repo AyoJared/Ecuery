@@ -31,6 +31,22 @@ tops up daily and its recent data hourly. A first question about a new place tak
 If a Solana write fails (for example because of devnet rate limits), `python -m ingest.run --reanchor`
 anchors those batches later.
 
+## Natural disasters and weather events
+
+`ingest/events.py` keeps events (records with a time, a place and details) in the Tiger table `events`.
+It loads one source-year the first time a question needs it. Each load is a provenance batch anchored on
+Solana, like the readings.
+
+| Events | Source | Coverage |
+| --- | --- | --- |
+| Tornadoes (EF rating, path), hail, damaging wind, floods, hurricanes, winter storms, heat, drought | NOAA NCEI Storm Events Database (NWS-verified) | US, 1996 onward, published a few months behind |
+| Earthquakes | USGS ComCat | worldwide, M2.5+ |
+| Wildfires, severe storms, volcanoes, floods, landslides | NASA EONET | worldwide, notable events, 2017 onward |
+
+Questions search around a place: its real extent from OpenStreetMap, widened for earthquakes and hurricanes.
+US state and country searches also require the record to name that state or country. When nothing falls
+inside the area, the answer names the nearest events.
+
 ## Run (from `backend/`)
 
 ```powershell
