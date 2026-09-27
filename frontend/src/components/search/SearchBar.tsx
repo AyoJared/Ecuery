@@ -1,7 +1,6 @@
 "use client";
 
 import { type FormEvent, type RefObject } from "react";
-import { useAssistant } from "@/components/assistant/AssistantProvider";
 
 type SearchBarProps = {
   value: string;
@@ -11,7 +10,6 @@ type SearchBarProps = {
 };
 
 export function SearchBar({ value, onChange, onSubmit, inputRef }: SearchBarProps) {
-  const { openAssistant } = useAssistant();
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const query = value.trim();
@@ -41,15 +39,6 @@ export function SearchBar({ value, onChange, onSubmit, inputRef }: SearchBarProp
           className="h-14 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none sm:h-16 sm:text-lg"
         />
         <button
-          type="button"
-          onClick={openAssistant}
-          aria-label="Talk to the Research Assistant"
-          title="Talk to the Research Assistant"
-          className="grid size-10 shrink-0 place-items-center rounded-xl text-ink-muted transition-colors hover:bg-surface-raised hover:text-ink sm:size-11"
-        >
-          <MicIcon />
-        </button>
-        <button
           type="submit"
           aria-label="Search"
           disabled={!value.trim()}
@@ -67,15 +56,6 @@ function SearchIcon() {
     <svg className="size-5 shrink-0 text-ink-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function MicIcon() {
-  return (
-    <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
     </svg>
   );
 }

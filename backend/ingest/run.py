@@ -19,7 +19,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 
 from readings.service import recent_cutoff  # noqa: E402
 
-from . import global_series, sources, store  # noqa: E402
+from . import sources, store  # noqa: E402
 from .commit import commit as commit_batch  # noqa: E402
 from .provenance import Batch, anchor  # noqa: E402
 
@@ -80,20 +80,6 @@ def recent() -> None:
     print("  ✓ Tiger continuous aggregates refreshed")
 
 
-def global_records() -> None:
-    """Long global climate records + burned area. Small files; safe to re-run (it refreshes them)."""
-    until = recent_cutoff().date()
-    print(f"\nGLOBAL RECORDS -> Snowflake (and Tiger for the last {(date.today() - until).days} days of sea ice)")
-    run_step("NOAA GlobalTemp (1850 ->)", lambda: global_series.global_temperature(until))
-    run_step("NOAA GML CO2 monthly (1958-2018)", lambda: global_series.co2_monthly(until))
-    ice = global_series.sea_ice(until, recent_cutoff())
-    run_step("NSIDC sea ice history (1978 ->)", lambda: ice[0])
-    run_step("NSIDC sea ice recent", lambda: ice[1])
-    run_step("NOAA STAR sea level (1993 ->)", lambda: global_series.sea_level(until))
-    run_step("GWIS burned area per country (2012 ->)", lambda: global_series.burned_area(date(until.year + 1, 1, 1)))
-    store.refresh_aggregates()
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--recent", action="store_true")
@@ -102,11 +88,9 @@ def main():
     parser.add_argument("--since", type=date.fromisoformat, default=date(2019, 1, 1))
     parser.add_argument("--drop-demo", action="store_true", help="delete the synthetic demo rows")
     parser.add_argument("--reanchor", action="store_true", help="anchor batches whose Solana write failed earlier")
-    parser.add_argument("--global", dest="global_records", action="store_true",
-                        help="long global records: temperature 1850-, CO2 1958-, sea ice, sea level, burned area")
     args = parser.parse_args()
-    if not (args.recent or args.history or args.all or args.drop_demo or args.reanchor or args.global_records):
-        parser.error("choose --recent, --history, --global, --all, --drop-demo and/or --reanchor")
+    if not (args.recent or args.history or args.all or args.drop_demo or args.reanchor):
+        parser.error("choose --recent, --history, --all, --drop-demo and/or --reanchor")
 
     store.ensure_schema()
     if args.drop_demo:
@@ -115,8 +99,6 @@ def main():
         history(args.since)
     if args.recent or args.all:
         recent()
-    if args.global_records or args.all:
-        global_records()
     if args.reanchor:
         for row in store.unanchored():
             anchored = anchor(row["manifest"])

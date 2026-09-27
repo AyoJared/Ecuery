@@ -15,12 +15,9 @@ from pydantic import BaseModel, Field
 
 from shared.catalog import METRICS
 
-Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity", "streamflow", "water_temperature",
-                 "precipitation", "dust", "burned_area", "global_temperature", "arctic_sea_ice", "antarctic_sea_ice",
-                 "sea_level"]
+Metric = Literal["pm25", "o3", "no2", "co2", "temperature", "humidity", "streamflow", "water_temperature"]
 assert set(Metric.__args__) == set(METRICS), "keep Metric in sync with shared/catalog.py"
-Operation = Literal["latest", "summary", "trend", "peak", "compare_history", "compare_locations", "count", "list",
-                    "forecast"]
+Operation = Literal["latest", "summary", "trend", "peak", "compare_history", "compare_locations", "count", "list"]
 EventType = Literal["tornado", "hail", "thunderstorm_wind", "flood", "hurricane", "winter_storm", "heat", "wildfire",
                     "drought", "earthquake", "volcano", "landslide", "severe_storm"]
 
@@ -44,8 +41,7 @@ class EnvironmentalQuery(BaseModel):
         None,
         description="latest = current value; summary = how was it; trend = how it changed over time; "
                     "peak = when was it highest/worst (or the biggest event); compare_history = vs normal / usual / "
-                    "previous years; compare_locations = between places; count = how many events; list = which events; "
-                    "forecast = anything about the future (will it, next week, tomorrow, in 2040, chance of)")
+                    "previous years; compare_locations = between places; count = how many events; list = which events")
 
     # Natural disasters and other events (instead of metrics)
     event_types: list[EventType] = Field(
@@ -55,17 +51,7 @@ class EnvironmentalQuery(BaseModel):
     radius_km: float | None = Field(None, description="Only if the user gives a distance ('within 100 miles'), in km.")
     min_magnitude: float | None = Field(
         None, description="Only if the user gives a threshold: earthquake magnitude ('M6+'), tornado EF rating "
-                          "('EF3 or stronger' -> 3), hail size in inches, hurricane wind in knots "
-                          "('Category 4+' -> 113, 'major hurricanes' -> 96).")
-    basin: str | None = Field(
-        None, description="Ocean basin for tropical cyclone questions, e.g. 'North Atlantic', 'Western Pacific', "
-                          "'Eastern Pacific', 'North Indian Ocean', 'South Pacific'. Not a location.")
-    event_name: str | None = Field(
-        None, description="A named event, e.g. 'Katrina' for Hurricane Katrina, 'Haiyan' for Typhoon Haiyan.")
-    rank_by: Literal["magnitude", "intensification", "duration", "deaths", "damage"] | None = Field(
-        None, description="What 'biggest/worst' means: magnitude (strongest, default); intensification (fastest "
-                          "strengthening / rapid intensification); duration (longest-lived); deaths (deadliest); "
-                          "damage (costliest).")
+                          "('EF3 or stronger' -> 3), hail size in inches.")
 
     # Actions and decisions
     proposed_action: str | None = None
@@ -82,11 +68,6 @@ class EnvironmentalQuery(BaseModel):
     entity_type: str | None = None
     activity: str | None = None
     audience: str | None = None
-
-    unsupported_topic: str | None = Field(
-        None, description="If the question is about something outside the allowed metrics and event types "
-                          "(e.g. 'glaciers', 'coral bleaching', 'bird migration'), "
-                          "name it here in a few words; otherwise leave empty.")
 
     clarification_question: str | None = Field(
         None, description="Only if the question is too vague to answer: what to ask the user.")
@@ -112,29 +93,7 @@ Events: questions about natural disasters or weather events (tornadoes, earthqua
 tropical storms / typhoons, floods, hail, damaging wind, blizzards / winter storms, heat waves, droughts, volcanic
 eruptions, landslides) set event_types and leave metrics empty. "How many" -> operation count; "which / list" ->
 list; "biggest / strongest / worst" -> peak. A place is optional for events ("biggest earthquakes in 2025").
-If no time is given for an event question, leave the dates empty, except for "ever" / "on record" / "since
-records began" / trend questions ("are hurricanes getting stronger", "each year"): set start_date to 1850-01-01.
-Tropical cyclones (hurricanes, typhoons, cyclones) are event type hurricane worldwide. An ocean basin ("Western
-Pacific typhoons", "Atlantic hurricanes") goes in basin, not locations. A named storm ("Hurricane Katrina") goes in
-event_name with its year as the dates, if known. "Deadliest" -> rank_by deaths; "costliest" -> damage; "fastest
-intensifying" / "rapid intensification" -> intensification; "longest-lasting" -> duration.
-
-Future: questions about what WILL happen ("will it rain", "forecast", "tomorrow", "next week", "this weekend",
-"next summer", "in 2040", "chance of a tornado next year") set operation to forecast and resolve the dates forward
-from today: tomorrow = the next day; next week = the next 7 days; this weekend = the coming Saturday-Sunday;
-next summer = June 1-August 31 of the next summer; "in 2040" = 2040-01-01 to 2040-12-31. "Hot" / "cold" / "weather"
-map to temperature. "Rain" or "snow" are not available: if that's all they ask about, set clarification_question.
-If the question is about a topic none of the metric codes or event types cover, set unsupported_topic to that
-topic (e.g. "glaciers", "coral bleaching") and do not force it onto an unrelated metric.
-"How much rain/snow" is metric precipitation even when a storm is named; for a named storm, set the location to
-the place it hit hardest if you know it (e.g. Storm Daniel 2023 -> "Derna, Libya") and the dates of the storm.
-"Each year", "how often", "per year", "per decade" or "how fast is X changing" with no dates means the whole record:
-set start_date to 1850-01-01 and operation to trend.
-Comparing specific periods with each other ("2023 vs 2024") is operation summary covering both periods;
-compare_history is only for "vs usual / normal / average / past years".
-"On record" / "ever" / "all time" means the whole record: set start_date to 1850-01-01 (it is clipped to the
-earliest data available). Drought, dry spells and monsoons are precipitation questions (use metric precipitation,
-yearly), not events, unless the user asks about specific drought events or declarations.
+If no time is given for an event question, leave the dates empty.
 Only set clarification_question when the metric/event or location truly can't be inferred.
 
 Follow-ups: if earlier turns of the conversation are given, the new question may depend on them

@@ -15,10 +15,6 @@ class Metric:
     unit: str
     hint: str  # how people ask about it (fed to Gemini)
     global_only: bool = False
-    first_year: int = 2019        # earliest data Ecuery can serve for this metric
-    per_country: bool = False     # values exist per country (and some regions), not per point
-    annual: bool = False          # one value per year (e.g. burned area)
-    trend_forecast: bool = False  # long, smooth global record: forecast by fitting its trend + seasons
 
 
 @dataclass(frozen=True)
@@ -39,26 +35,11 @@ METRICS: dict[str, Metric] = {m.code: m for m in [
     Metric("pm25", "PM2.5", "µg/m³", "fine particulate matter PM2.5, smoke, haze, soot, 'air quality' / AQI in general"),
     Metric("o3", "Ozone", "ppb", "ozone, smog"),
     Metric("no2", "NO2", "ppb", "nitrogen dioxide, traffic / vehicle exhaust pollution"),
-    Metric("co2", "CO2", "ppm", "carbon dioxide concentration, CO2 levels (global, Mauna Loa)", global_only=True,
-           first_year=1958, trend_forecast=True),
-    Metric("temperature", "Temperature", "°C", "air temperature, heat, cold, weather, hottest/coldest on record",
-           first_year=1940),
-    Metric("humidity", "Humidity", "%", "relative humidity, moisture, muggy", first_year=1940),
+    Metric("co2", "CO2", "ppm", "carbon dioxide concentration, CO2 levels (global, Mauna Loa)", global_only=True),
+    Metric("temperature", "Temperature", "°C", "air temperature, heat, cold, weather"),
+    Metric("humidity", "Humidity", "%", "relative humidity, moisture, muggy"),
     Metric("streamflow", "Streamflow", "ft³/s", "river / stream flow, discharge, flooding, drought, water levels"),
     Metric("water_temperature", "Water temperature", "°C", "river / stream water temperature"),
-    Metric("precipitation", "Precipitation", "mm/day", "rain, rainfall, snowfall, precipitation, monsoon rain, wet/dry "
-           "spells; also drought measured as lack of rain (daily totals, summed per month/year)", first_year=1940),
-    Metric("dust", "Dust", "µg/m³", "desert / Saharan dust in the air, dust storms, sand haze"),
-    Metric("burned_area", "Burned area", "ha", "area burned by wildfires / wildfire acreage per country per year",
-           per_country=True, annual=True, first_year=2012),
-    Metric("global_temperature", "Global temperature", "°C", "global average surface temperature anomaly vs the "
-           "1901-2000 average, global warming since 1850", global_only=True, first_year=1850, trend_forecast=True),
-    Metric("arctic_sea_ice", "Arctic sea ice", "million km²", "Arctic / Northern Hemisphere sea ice extent",
-           global_only=True, first_year=1978, trend_forecast=True),
-    Metric("antarctic_sea_ice", "Antarctic sea ice", "million km²", "Antarctic / Southern Hemisphere sea ice extent",
-           global_only=True, first_year=1978, trend_forecast=True),
-    Metric("sea_level", "Global sea level", "mm", "global mean sea level rise (satellite altimetry, vs 1993-2012)",
-           global_only=True, first_year=1993, trend_forecast=True),
 ]}
 
 CITIES: dict[str, City] = {c.key: c for c in [

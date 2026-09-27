@@ -9,13 +9,6 @@ const METRIC_LABELS: Record<string, string> = {
   humidity: "Humidity",
   streamflow: "River flow",
   water_temperature: "Water temperature",
-  precipitation: "Rainfall",
-  dust: "Saharan dust",
-  burned_area: "Burned area",
-  global_temperature: "Global temperature anomaly",
-  arctic_sea_ice: "Arctic sea ice extent",
-  antarctic_sea_ice: "Antarctic sea ice extent",
-  sea_level: "Global sea level",
 };
 
 export const metricLabel = (key: string) =>
@@ -26,12 +19,7 @@ const OPERATION_LABELS: Record<string, string> = {
   latest: "Latest reading",
   compare_history: "Compared with past years",
   compare: "Comparison",
-  compare_locations: "Comparison between places",
   trend: "Trend",
-  peak: "Peak",
-  count: "Count",
-  list: "List",
-  forecast: "Forecast",
 };
 
 export const operationLabel = (op: string) => OPERATION_LABELS[op] ?? op.replace(/_/g, " ");

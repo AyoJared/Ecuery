@@ -172,7 +172,7 @@ export const envEvents: EnvEvent[] = [
     lng: -1.6,
     stat: "122 mph gust, an England record",
     summary: "One of the strongest windstorms to hit southern Britain in decades; millions lost power.",
-    question: "Are UK winters getting wetter since 1950?",
+    question: "Are winter windstorms in the UK getting stronger?",
   },
   {
     id: "moravia-2021",
@@ -184,7 +184,7 @@ export const envEvents: EnvEvent[] = [
     lng: 17.1,
     stat: "IF4, the strongest in modern Czech records",
     summary: "Tore through villages near Hodonín, a rare violent tornado for central Europe.",
-    question: "How has extreme daily rainfall in Czechia changed since 1950?",
+    question: "How many strong tornadoes does Europe get each year?",
   },
   {
     id: "evros-2023",

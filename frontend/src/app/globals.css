@@ -35,9 +35,6 @@ body {
 
 html {
   scroll-behavior: smooth;
-  /* Decorative glows and the sources marquee run past the edges; never let them widen the page on
-     phones (which would also stretch fixed layers like the Research Assistant overlay). */
-  overflow-x: clip;
 }
 
 ::selection {

@@ -2,7 +2,6 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { useAssistant } from "@/components/assistant/AssistantProvider";
 
 // Landing page sections, in page order. `id` must match the section's id attribute.
 const sections = [
@@ -73,7 +72,6 @@ export function SectionNavLinks() {
 /** Menu button + dropdown for phones. */
 export function SectionNavMenu() {
   const active = useActiveSection();
-  const { openAssistant } = useAssistant();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -130,19 +128,6 @@ export function SectionNavMenu() {
                 {s.id === active && <span className="size-1.5 rounded-full bg-accent" />}
               </a>
             ))}
-            <button
-              onClick={() => {
-                setOpen(false);
-                openAssistant();
-              }}
-              className="mt-1 flex w-full items-center gap-2 rounded-xl border-t border-line px-3 py-3.5 text-left text-sm font-medium text-accent transition-colors hover:text-accent-soft"
-            >
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <rect x="9" y="3" width="6" height="11" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-              </svg>
-              Research Assistant
-            </button>
           </motion.nav>
         )}
       </AnimatePresence>

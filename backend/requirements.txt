@@ -8,6 +8,3 @@ snowflake-connector-python>=4.7
 google-genai>=2.25
 solders>=0.29
 redis>=5
-python-multipart  # form/file uploads (voice questions)
-numpy  # yearly trends and forecast fits
-beautifulsoup4  # page text for cited web answers

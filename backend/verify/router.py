@@ -131,13 +131,6 @@ def source_batch(batch_id: str, refetch: bool = False):
     return result
 
 
-@router.get("/forecasts")
-def forecast_track_record(days: int = 365):
-    """How Ecuery's past forecasts compare with what actually happened, by method."""
-    from ask.forecast_answer import scorecard
-    return scorecard(limit_days=min(days, 3650))
-
-
 def _lookup(client: SolanaClient, signature: str):
     try:
         return client.get_transaction(signature)
