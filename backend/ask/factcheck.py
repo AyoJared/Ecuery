@@ -142,8 +142,20 @@ def feedback_text(unsupported: list[str]) -> str:
             "if the data doesn't contain something, say so instead of estimating.")
 
 
+def _plain(result):
+    """Models sometimes emit HTML entities ('km&sup2;'); answers are plain text for the UI and text-to-speech."""
+    import html
+    result.answer_text = html.unescape(result.answer_text)
+    result.trends = [html.unescape(t) for t in result.trends]
+    if result.comparison:
+        result.comparison = html.unescape(result.comparison)
+    return result
+
+
 def grounded(generate, evidence: dict, question: str):
     """generate(feedback | None) -> Analysis. Check it; on unsupported claims, regenerate once with feedback."""
+    original = generate
+    generate = lambda feedback: _plain(original(feedback))
     result = generate(None)
     report = check(result.answer_text, evidence, question)
     if not report["ok"]:

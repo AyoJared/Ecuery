@@ -14,7 +14,7 @@ python3 -m venv .venv
 
 cd /root/Ecuery/frontend
 npm ci
-NEXT_PUBLIC_API_MODE=live ECUERY_API_URL=http://127.0.0.1:8000 npm run build
+ECUERY_API_URL=http://127.0.0.1:8000 npm run build
 
 cat > /etc/systemd/system/ecuery-api.service <<'EOF'
 [Unit]
@@ -43,7 +43,6 @@ After=network-online.target ecuery-api.service
 [Service]
 WorkingDirectory=/root/Ecuery/frontend
 Environment=NODE_ENV=production
-Environment=NEXT_PUBLIC_API_MODE=live
 Environment=ECUERY_API_URL=http://127.0.0.1:8000
 ExecStart=/usr/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
 Restart=always

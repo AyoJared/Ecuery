@@ -18,7 +18,7 @@ const SUGGESTIONS = [
   QUESTION,
   "How fast is global temperature rising?",
   "How fast is Arctic sea ice shrinking?",
-  "How fast are glaciers melting?",
+  "How fast is CO₂ rising?",
 ];
 
 // Each step's animation plays in the first ~65% of its time; the rest holds the result.
